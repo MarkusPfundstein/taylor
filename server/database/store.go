@@ -71,8 +71,6 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 	INSERT INTO jobs (id, identifier, status, ts) VALUES ("%s", "%s", %d, %d);
 	`, job.Id, job.Identifier, job.Status, job.Timestamp)
 
-	fmt.Printf("Run query: %s\n", query)
-
 	_, err = tx.Exec(query)
 	if err != nil {
 		return 0, err
@@ -86,8 +84,6 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 }
 
 func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
-	fmt.Printf("Run query: %s\n", query)
-
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return err
@@ -108,10 +104,10 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 	return nil
 }
 
-func (s *Store) CollectQuery(query string) ([]structs.Job, error) {
-	jobs := make([]structs.Job, 0)
+func (s *Store) CollectQuery(query string) ([]*structs.Job, error) {
+	jobs := make([]*structs.Job, 0)
 	error := s.IterQuery(query, func (job *structs.Job) {
-		jobs = append(jobs, *job)
+		jobs = append(jobs, job)
 	})
 	if error != nil {
 		return nil, error
@@ -131,10 +127,10 @@ func (s *Store) JobById(id string) (*structs.Job, error) {
 		return nil, nil
 	}
 
-	return &jobs[0], nil
+	return jobs[0], nil
 }
 
-func (s *Store) AllJobs(limit int) ([]structs.Job, error) {
+func (s *Store) AllJobs(limit uint) ([]*structs.Job, error) {
 	var q strings.Builder
 
 	q.WriteString(fmt.Sprintf("SELECT * FROM jobs ORDER BY ts ASC"))
@@ -145,7 +141,7 @@ func (s *Store) AllJobs(limit int) ([]structs.Job, error) {
 	return s.CollectQuery(q.String())
 }
 
-func (s *Store) JobsWithStatus(status structs.JobStatus, limit int) ([]structs.Job, error) {
+func (s *Store) JobsWithStatus(status structs.JobStatus, limit uint) ([]*structs.Job, error) {
 	var q strings.Builder
 
 	q.WriteString(fmt.Sprintf("SELECT * FROM jobs WHERE status = %d ORDER BY ts ASC", int(status)))
@@ -154,4 +150,24 @@ func (s *Store) JobsWithStatus(status structs.JobStatus, limit int) ([]structs.J
 	}
 
 	return s.CollectQuery(q.String())
+}
+
+func (s *Store) UpdateJobStatus(id string, status structs.JobStatus) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	q := fmt.Sprintf("UPDATE jobs SET status = %d WHERE id = \"%s\"", int(status), id)
+
+	_, err = tx.Exec(q)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }

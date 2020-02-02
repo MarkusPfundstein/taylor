@@ -38,8 +38,6 @@ func postJob(deps *ApiDependencies, c *gin.Context) {
 		return
 	}
 
-	deps.TcpServer.Broadcast([]string{"client1", "client2"}, "Hello Client")
-
 	c.Status(http.StatusCreated)
 }
 
@@ -49,8 +47,12 @@ func getAllJobs(deps *ApiDependencies, c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
+	if limit < 0 {
+		c.Status(http.StatusBadRequest)
+		return
+	}
 
-	jobs, err := deps.Store.AllJobs(limit)
+	jobs, err := deps.Store.AllJobs(uint(limit))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
 		c.Status(http.StatusInternalServerError)
@@ -61,7 +63,7 @@ func getAllJobs(deps *ApiDependencies, c *gin.Context) {
 }
 
 func getAllNodes(deps *ApiDependencies, c *gin.Context) {
-	nodes := deps.TcpServer.ConnectedClients()
+	nodes := deps.TcpServer.Nodes()
 
 	c.JSON(http.StatusOK, nodes)
 }

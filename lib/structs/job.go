@@ -20,10 +20,10 @@ const (
 )
 
 type Job struct {
-	Id		string
-	Identifier	string
-	Status		JobStatus
-	Timestamp	int64
+	Id		string		`json:"id"`
+	Identifier	string		`json:"identifier"`
+	Status		JobStatus	`json:"status"`
+	Timestamp	int64		`json:"timestamp"`
 }
 
 func NewJob(id string) *Job {

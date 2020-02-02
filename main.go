@@ -17,9 +17,9 @@ func _main() int {
 	}
 
 	if args[0] == "server" {
-		return server.Run()
+		return server.Run(args[1:])
 	} else if args[0] == "agent" {
-		return agent.Run()
+		return agent.Run(args[1:])
 	} else {
 		fmt.Println("Server or Agent?")
 		return 1

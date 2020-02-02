@@ -1,5 +1,6 @@
 {
   "cluster": "127.0.0.1:8401",
+  "name": "mega-cool-agent",
   "scheduler": {
     "max_parallel_jobs": 3
   }

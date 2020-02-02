@@ -3,7 +3,6 @@ package tcp
 import (
 	"bufio"
 	"net"
-	"fmt"
 )
 
 type Conn struct {
@@ -21,7 +20,7 @@ func (t *Conn) Conn() (net.Conn) {
 }
 
 func (t *Conn) String () string {
-	return "TcpConn(" + t.Raddr() + ")"
+	return "Conn(" + t.Raddr() + ")"
 }
 
 func (t *Conn) writeString(message string) error {
@@ -40,10 +39,10 @@ func (t *Conn) Raddr() string {
 	return t.conn.RemoteAddr().String()
 }
 
-func (t *Conn) ReadMessage() (interface{}, error) {
+func (t *Conn) ReadMessage() (interface{}, int, error) {
 	data, err := t.readString('\n')
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	return Decode(data)
 }
@@ -53,8 +52,6 @@ func (t *Conn) WriteMessage(obj interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("Send", hsMsg)
 
 	return t.writeString(hsMsg)
 }

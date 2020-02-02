@@ -5,43 +5,50 @@ import (
 	"net"
 	"os"
 
+	"taylor/server/database"	
 	"taylor/lib/tcp"	
+	"taylor/lib/structs"	
 )
 
-type TcpDependencies struct {}
-
-type AddrMsgPair struct {
-	addr	string
-	msg	string
+type TcpDependencies struct {
+	Store	*database.Store
 }
 
 type Node struct {
-	conn	*tcp.Conn
-	Name	string
+	conn		*tcp.Conn
+	Name		string
+	Capacity	uint
+	JobsRunning	uint
+}
+
+type NodeMsgPair struct {
+	node	*Node
+	payload interface{}	
 }
 
 type TcpServer struct {
-	Nodes		  map[string]*Node
+	store		  *database.Store
+	nodes		  map[string]*Node
 	dependencies	  TcpDependencies
-	cliChan		  chan AddrMsgPair
+	cliChan		  chan NodeMsgPair
 	config		  Config
 }
 
 func (s *TcpServer) registerNode(n *Node) bool {
-	_, in := s.Nodes[n.Name]
+	_, in := s.nodes[n.Name]
 	if in {
 		return false
 	}
 	fmt.Printf("Register %s\n", n.Name)
-	s.Nodes[n.Name] = n
+	s.nodes[n.Name] = n
 	return true
 }
 
 func (s *TcpServer) deregisterNode(n *Node) {
-	_, in := s.Nodes[n.Name]
+	_, in := s.nodes[n.Name]
 	if in {
 		fmt.Printf("Deregister %s\n", n.Name)
-		delete(s.Nodes, n.Name)
+		delete(s.nodes, n.Name)
 		n.conn.Close()
 	}
 }
@@ -49,7 +56,7 @@ func (s *TcpServer) deregisterNode(n *Node) {
 func (s *TcpServer) handshakeStart(c *tcp.Conn) (string, string, error) {
 	// establish handshake
 	fmt.Println("Wait for handshake message")
-	data, err := c.ReadMessage()
+	data, _, err := c.ReadMessage()
 	if err != nil {
 		return "", "", err
 	}
@@ -101,6 +108,8 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 
 	node := Node{
 		Name: nodeName,
+		Capacity: 3,		// for now
+		JobsRunning: 0,
 		conn: c,
 	}
 
@@ -118,24 +127,50 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 
 	fmt.Println("Handshake done for", c)
 	for {
-		message, err := c.ReadMessage()
+		message, cmd, err := c.ReadMessage()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Client Error: %v\n", err)
 			return
 		}
-		fmt.Printf("Rec: %v\n", message)
+		switch (cmd) {
+		case tcp.MSG_JOB_ACCEPTED:
+			response, _ := message.(tcp.MsgJobAccepted)
+			if response.Accepted == false {
+				fmt.Println("Node %s rejected work. Reason %s\n", response.NodeName, response.RefuseReason)
+				continue
+			}
+
+			fmt.Printf("Node %s accepted work\n", response.NodeName);
+
+			node, in := s.nodes[response.NodeName]
+			if in == false {
+				fmt.Println("Node %s not available anymore.\n", response.NodeName)
+				// discard message
+				continue
+			}
+
+			node.JobsRunning = response.JobsRunning
+
+			err = s.store.UpdateJobStatus(response.Job.Id, structs.JOB_STATUS_SCHEDULED)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
+			}
+		default:
+			fmt.Println("Unknown command received")
+		}
 	}
 }
 
-func (s *TcpServer) ConnectedClients() []string {
-	keys := make([]string, len(s.Nodes))
+func (s *TcpServer) Nodes() []*Node {
+	nodes := make([]*Node, len(s.nodes))
+
 
 	i := 0
-	for k := range s.Nodes {
-		keys[i] = k
+	for _, v := range s.nodes {
+		nodes[i] = v
 		i++
 	}
-	return keys
+	return nodes
 }
 
 func (s *TcpServer) listen(ln net.Listener) {
@@ -143,16 +178,22 @@ func (s *TcpServer) listen(ln net.Listener) {
 
 	go func() {
 		for {
-			addrMsgPair := <- s.cliChan
-			fmt.Printf("handle out msg %+v\n", addrMsgPair)
+			nodeMsgPair := <- s.cliChan
 
-			addr := addrMsgPair.addr
-			msg := addrMsgPair.msg
+			node := nodeMsgPair.node
+			payload := nodeMsgPair.payload
 
-			_, in := s.Nodes[addr]
-			if in {
-				fmt.Printf("Send msg %s to %s\n", msg, addr)
-				//c.WriteString(msg)
+			// check again if node is still connected
+			_, in := s.nodes[node.Name]
+			if !in {
+				// discard message
+				continue
+			}
+
+			err := node.conn.WriteMessage(payload)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error sending to %s\n", node.Name)
+				// notify node
 			}
 		}
 	}()
@@ -170,11 +211,17 @@ func (s *TcpServer) listen(ln net.Listener) {
 	}
 }
 
-func (s *TcpServer) Broadcast(clients []string, message string) {
-	for _, v := range clients {
-		s.cliChan <- AddrMsgPair{v, message}
+func (s *TcpServer) Unicast(node *Node, payload interface{}) {
+	s.cliChan <- NodeMsgPair{node, payload}
+}
+
+/*
+func (s *TcpServer) Broadcast(nodes []*Node, message string) {
+	for _, n := range nodes {
+		s.cliChan <- NodeMsgPair{n, message}
 	}
 }
+*/
 
 func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 	ln, err := net.Listen("tcp", config.Addresses.Tcp)
@@ -183,9 +230,9 @@ func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 	}
 
 	s := &TcpServer{
-		Nodes:		   make(map[string]*Node),
-		dependencies:	   deps,
-		cliChan:	   make(chan AddrMsgPair, 50),
+		nodes:		   make(map[string]*Node),
+		store:		   deps.Store,
+		cliChan:	   make(chan NodeMsgPair, 50),
 		config:		   config,
 	}
 

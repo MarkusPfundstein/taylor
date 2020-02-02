@@ -21,7 +21,7 @@ type Config struct {
 func ReadConfig(path string) (*Config, error) {
 	var config Config
 
-	data, err := ioutil.ReadFile("./server-config.json")
+	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
