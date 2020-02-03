@@ -9,9 +9,14 @@ distributed worker queue written in golang
 
 ## To-Do
 
+- pipe exec stdout and stderr back to server
 - consul integration
 - docker driver
 - automatic socket updates
-- add job.OnError {reschedule, webhook callback, script callback, nothing}
-- add job.OnSuccess {webhook callback, script callback, nothing}
+- add job.OnError {reschedule, webhook callback, script callback, nothing} (Exec on server)
+- add job.OnSuccess {webhook callback, script callback, nothing} (Exec on server)
 - add TLS
+- -dev mode
+- cmd line args
+- docs
+- remove deletion of database on startup :D :D
