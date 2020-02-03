@@ -10,6 +10,7 @@ import (
 
 	"taylor/lib/tcp"
 	"taylor/lib/structs"
+	"taylor/agent/drivers"
 )
 
 
@@ -17,7 +18,9 @@ type Client struct {
 	name		string
 	capacity	uint
 	conn		*tcp.Conn
-	jobsRunning	[]*structs.Job
+	jobsRunning	map[string]*structs.Job
+	drivers		map[string]*structs.Driver
+	jobCh		chan *structs.Job
 }
 
 func (c *Client) HasCapacity() bool {
@@ -67,18 +70,21 @@ func (c *Client) sendJobOfferResponse(job *structs.Job, refuseReason string) err
 		MsgBase: tcp.MsgBase{
 			Command: tcp.MSG_JOB_ACCEPTED,
 			NodeName: c.name,
+			JobsRunning: uint(len(c.jobsRunning)),
 		},
 		Accepted: accepted,
 		RefuseReason: refuseReason,
 		Job: *job,
-		JobsRunning: uint(len(c.jobsRunning)),
 	})
 }
 
 func (c *Client) acceptJobOffer(job *structs.Job) error {
 	fmt.Println("Have capacity")
-	job.Status = structs.JOB_STATUS_RUNNING
-	c.jobsRunning = append(c.jobsRunning, job)
+
+	job.Status = structs.JOB_STATUS_SCHEDULED
+	job.AgentName = c.name
+
+	c.jobsRunning[job.Id] = job
 
 	return c.sendJobOfferResponse(job, "")
 }
@@ -113,6 +119,7 @@ func (c *Client) connect(clusterAddr string) error {
 			fmt.Println(jobOffer.Job)
 			if c.HasCapacity() {
 				c.acceptJobOffer(&jobOffer.Job)
+				c.jobCh <- &jobOffer.Job
 			} else {
 				c.rejectJobOffer(&jobOffer.Job, "No capacity")
 			}
@@ -130,6 +137,66 @@ func (c *Client) close() {
 	}
 }
 
+func (c *Client) execJob(job *structs.Job) error {
+	driver := c.drivers["exec"]
+
+	return driver.Run(job, driver, nil)
+}
+
+func (c *Client) handleJobDone(job *structs.Job, success bool) error {
+	delete(c.jobsRunning, job.Id)
+
+	if success == true {
+		job.Status = structs.JOB_STATUS_SUCCESS
+	} else {
+		job.Status = structs.JOB_STATUS_ERROR
+	}
+
+	return c.sendJobDone(job, success)
+}
+
+func (c *Client) sendJobDone(job *structs.Job, success bool) error {
+	return c.conn.WriteMessage(tcp.MsgJobDone{
+		MsgBase: tcp.MsgBase{
+			Command: tcp.MSG_JOB_DONE,
+			NodeName: c.name,
+			JobsRunning: uint(len(c.jobsRunning)),
+		},
+		Success: success,
+		Job: *job,
+	})
+}
+
+func (c *Client) startJobRunner() {
+	go func() {
+		for {
+			fmt.Println("Waiting for job")
+			job := <- c.jobCh
+			go func(job *structs.Job) {
+				fmt.Println("Got a job to do...")
+				err := c.execJob(job)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error executing job %s (%s)- %v\n", job.Id, job.Identifier, err)
+					c.handleJobDone(job, false)
+					return
+				}
+
+				c.handleJobDone(job, true)
+			}(job)
+		}
+	}()
+}
+
+func initDrivers(config *Config) map[string]*structs.Driver {
+	driverMap := make(map[string]*structs.Driver)
+
+	execDriver := drivers.NewExecDriver()
+	driverMap[execDriver.Name] = execDriver
+
+	return driverMap
+}
+
+
 func Run(args []string) int {
 
 	fmt.Println("Args", args)
@@ -145,22 +212,28 @@ func Run(args []string) int {
 		fmt.Fprintf(os.Stderr, "Config Error: %v\n", err)
 		return 1
 	}
+
+	driverMap := initDrivers(config)
 	
 	client := &Client{
 		name:		config.Name,
 		capacity:	config.Scheduler.MaxParallelJobs,
-		jobsRunning:	make([]*structs.Job, 0),
+		jobsRunning:	make(map[string]*structs.Job),
+		drivers:	driverMap,
+		jobCh:		make(chan *structs.Job, config.Scheduler.MaxParallelJobs),
 	}
 
 	defer client.close()
 
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	intC := make(chan os.Signal)
+	signal.Notify(intC, os.Interrupt, syscall.SIGTERM)
 	go func() {
-		<-c
+		<-intC
 		client.close()
 		os.Exit(1)
 	}()
+
+	client.startJobRunner()
 
 	err = client.connect(config.ClusterAddr)
 	if err != nil {

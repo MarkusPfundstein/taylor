@@ -86,6 +86,8 @@ func getJob(deps *ApiDependencies, c *gin.Context) {
 
 func StartApi(config *Config, deps *ApiDependencies) error {
 
+	gin.SetMode(gin.ReleaseMode)
+
 	router := gin.Default()
 
 	v1 := router.Group("/v1")

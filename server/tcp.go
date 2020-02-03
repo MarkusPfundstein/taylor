@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"errors"
 
 	"taylor/server/database"	
 	"taylor/lib/tcp"	
@@ -90,6 +91,49 @@ func (s *TcpServer) handshakeEnd(c *tcp.Conn, refuseReason string) error {
 	})
 }
 
+func (s *TcpServer) handleMsgJobDone(response *tcp.MsgJobDone) error {
+	node, in := s.nodes[response.NodeName]
+	if in == false {
+		return errors.New(fmt.Sprintf("Node %s not available anymore.", response.NodeName))
+	}
+
+	node.JobsRunning = response.JobsRunning
+
+	fmt.Printf("Job %s (%s) success status: %v\n", response.Job.Id, response.Job.Identifier, response.Success)
+
+	err := s.store.UpdateJobStatus(response.Job.Id, response.Job.Status)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
+	}
+	return nil
+}
+
+func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {
+	if response.Accepted == false {
+		return errors.New(fmt.Sprintf("Node %s rejected work. Reason %s", response.NodeName, response.RefuseReason))
+	}
+
+	fmt.Printf("Node %s accepted work\n", response.NodeName);
+
+	node, in := s.nodes[response.NodeName]
+	if in == false {
+		return errors.New(fmt.Sprintf("Node %s not available anymore.", response.NodeName))
+	}
+
+	node.JobsRunning = response.JobsRunning
+
+	err := s.store.UpdateJobStatus(response.Job.Id, structs.JOB_STATUS_SCHEDULED)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
+	}
+	err = s.store.UpdateJobAgentName(response.Job.Id, response.NodeName) 
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
+	}
+
+	return nil
+}
+
 func (s *TcpServer) handleConn(c *tcp.Conn) {
 
 	refuseReason, nodeName, err := s.handshakeStart(c)
@@ -129,31 +173,22 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 	for {
 		message, cmd, err := c.ReadMessage()
 		if err != nil {
+			// To-Do: go through all jobs at that agent that are SCHEDULED and put them back into queue
 			fmt.Fprintf(os.Stderr, "Client Error: %v\n", err)
 			return
 		}
 		switch (cmd) {
 		case tcp.MSG_JOB_ACCEPTED:
 			response, _ := message.(tcp.MsgJobAccepted)
-			if response.Accepted == false {
-				fmt.Println("Node %s rejected work. Reason %s\n", response.NodeName, response.RefuseReason)
-				continue
-			}
-
-			fmt.Printf("Node %s accepted work\n", response.NodeName);
-
-			node, in := s.nodes[response.NodeName]
-			if in == false {
-				fmt.Println("Node %s not available anymore.\n", response.NodeName)
-				// discard message
-				continue
-			}
-
-			node.JobsRunning = response.JobsRunning
-
-			err = s.store.UpdateJobStatus(response.Job.Id, structs.JOB_STATUS_SCHEDULED)
+			err := s.handleMsgJobAccepted(&response)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
+		case tcp.MSG_JOB_DONE:
+			response, _ := message.(tcp.MsgJobDone)
+			err := s.handleMsgJobDone(&response)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 		default:
 			fmt.Println("Unknown command received")

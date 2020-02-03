@@ -11,12 +11,15 @@ type JobStatus int
 const (
 	// job is waiting to be scheduled at a worker
 	JOB_STATUS_WAITING JobStatus = iota
+
 	// job is scheduled at a worker
 	JOB_STATUS_SCHEDULED 
-	// job is being performed at a worker
-	JOB_STATUS_RUNNING	  
+
 	// job is done
-	JOB_STATUS_STOPPED
+	JOB_STATUS_SUCCESS
+
+	// job is error
+	JOB_STATUS_ERROR
 )
 
 type Job struct {
@@ -24,6 +27,7 @@ type Job struct {
 	Identifier	string		`json:"identifier"`
 	Status		JobStatus	`json:"status"`
 	Timestamp	int64		`json:"timestamp"`
+	AgentName	string		`json:"agent_name"`
 }
 
 func NewJob(id string) *Job {
@@ -32,6 +36,7 @@ func NewJob(id string) *Job {
 		Identifier:	id,
 		Status:		JOB_STATUS_WAITING,
 		Timestamp:	time.Now().UnixNano() / 1000000,
+		AgentName:	"",
 	}
 	fmt.Printf("make job: %v\n", job)
 	return &job

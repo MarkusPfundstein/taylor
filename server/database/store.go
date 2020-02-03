@@ -26,6 +26,7 @@ func (s *Store) init() error {
 		,identifier STRING
 		,status INT
 		,ts BIGINT
+		,agent_name STRING
 	);
 	`)
 	if err != nil {
@@ -68,8 +69,8 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 		return 0, err
 	}
 	query := fmt.Sprintf(`
-	INSERT INTO jobs (id, identifier, status, ts) VALUES ("%s", "%s", %d, %d);
-	`, job.Id, job.Identifier, job.Status, job.Timestamp)
+	INSERT INTO jobs (id, identifier, status, ts, agent_name) VALUES ("%s", "%s", %d, %d, "%s");
+	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName)
 
 	_, err = tx.Exec(query)
 	if err != nil {
@@ -93,7 +94,7 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 	for rows.Next() {
 		var job structs.Job
 
-		err := rows.Scan(&job.Id, &job.Identifier, &job.Status, &job.Timestamp)
+		err := rows.Scan(&job.Id, &job.Identifier, &job.Status, &job.Timestamp, &job.AgentName)
 		if err != nil {
 			return err
 		}
@@ -150,6 +151,26 @@ func (s *Store) JobsWithStatus(status structs.JobStatus, limit uint) ([]*structs
 	}
 
 	return s.CollectQuery(q.String())
+}
+
+func (s *Store) UpdateJobAgentName(id string, agentName string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	q := fmt.Sprintf("UPDATE jobs SET agent_name = \"%s\" WHERE id = \"%s\"", agentName, id)
+
+	_, err = tx.Exec(q)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) UpdateJobStatus(id string, status structs.JobStatus) error {

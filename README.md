@@ -6,3 +6,9 @@ distributed worker queue written in golang
 - uuid
 - gin
 - ql
+
+## To-Do
+
+- consul integration
+- docker driver
+- automatic socket updates

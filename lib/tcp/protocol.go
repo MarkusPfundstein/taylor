@@ -17,11 +17,13 @@ const (
 
 	MSG_NEW_JOB_OFFER
 	MSG_JOB_ACCEPTED
+	MSG_JOB_DONE
 )
 
 type MsgBase struct {
 	Command		int	`json:"command"`
 	NodeName	string  `json:"node_name"`
+	JobsRunning	uint	`json:"jobs_running"`
 }
 
 type MsgHandshakeInitial struct {
@@ -45,7 +47,12 @@ type MsgJobAccepted struct {
 	Accepted	bool		`json:"accepted"`
 	RefuseReason	string		`json:"refuse_reason"`
 	Job		structs.Job	`json:"job"`
-	JobsRunning	uint		`json:"jobs_running"`
+}
+
+type MsgJobDone struct {
+	MsgBase
+	Success		bool		`json:"success"`
+	Job		structs.Job	`json:"job"`
 }
 
 func Encode(message interface{}) (string, error) {
@@ -81,6 +88,10 @@ func Decode(message string) (interface{}, int, error) {
 		return r, r.Command, err
 	case MSG_JOB_ACCEPTED:
 		var r MsgJobAccepted
+		err = json.Unmarshal(hsJson, &r)
+		return r, r.Command, err
+	case MSG_JOB_DONE:
+		var r MsgJobDone
 		err = json.Unmarshal(hsJson, &r)
 		return r, r.Command, err
 	default:
