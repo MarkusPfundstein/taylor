@@ -1,11 +1,12 @@
 package database
 
 import (
-	//"errors"
 	"strings"
 	"fmt"
 	"database/sql"
 	"modernc.org/ql"
+	"encoding/json"
+	"encoding/base64"
 
 	"taylor/lib/structs"
 )
@@ -27,6 +28,8 @@ func (s *Store) init() error {
 		,status INT
 		,ts BIGINT
 		,agent_name STRING
+		,driver STRING
+		,driver_config STRING
 	);
 	`)
 	if err != nil {
@@ -63,14 +66,39 @@ func Open(dbPath string) (*Store, error) {
 	return store, nil
 }
 
+func encodeData(data interface{}) (string, error) {
+	js, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(js), nil
+}
+
+func decodeData(data string) (interface{}, error) {
+	hsJson, err := base64.RawStdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, err
+	}
+	var decoded interface{}
+	err = json.Unmarshal(hsJson, &decoded)
+	if err != nil {
+		return nil, err
+	}
+
+	return decoded, nil
+}
+
 func (s *Store) InsertJob(job *structs.Job) (int, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return 0, err
 	}
+
+	driverConfig, _ := encodeData(job.DriverConfig)
+
 	query := fmt.Sprintf(`
-	INSERT INTO jobs (id, identifier, status, ts, agent_name) VALUES ("%s", "%s", %d, %d, "%s");
-	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName)
+	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s");
+	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName, job.Driver, string(driverConfig))
 
 	_, err = tx.Exec(query)
 	if err != nil {
@@ -93,11 +121,18 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 
 	for rows.Next() {
 		var job structs.Job
+		
+		var encodedDriverConfig string
 
-		err := rows.Scan(&job.Id, &job.Identifier, &job.Status, &job.Timestamp, &job.AgentName)
+		err := rows.Scan(&job.Id, &job.Identifier, &job.Status, &job.Timestamp, &job.AgentName, &job.Driver, &encodedDriverConfig)
 		if err != nil {
 			return err
 		}
+
+		decodedDriverConfig, _ := decodeData(encodedDriverConfig)
+		driverConfig, _ := decodedDriverConfig.(map[string]interface{})
+
+		job.DriverConfig = driverConfig
 
 		fun(&job)
 	}
@@ -140,6 +175,13 @@ func (s *Store) AllJobs(limit uint) ([]*structs.Job, error) {
 	}
 
 	return s.CollectQuery(q.String())
+}
+
+func (s *Store) JobsFromNodeWithStatus(nodeName string, status structs.JobStatus) ([]*structs.Job, error) {
+
+	query := fmt.Sprintf("SELECT * FROM jobs WHERE agent_name = \"%s\" AND status = %d ORDER BY ts ASC", nodeName, int(status))
+
+	return s.CollectQuery(query)
 }
 
 func (s *Store) JobsWithStatus(status structs.JobStatus, limit uint) ([]*structs.Job, error) {

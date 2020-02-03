@@ -7,6 +7,7 @@ import (
 	"net"
 	"os/signal"
 	"syscall"
+	"sync"
 
 	"taylor/lib/tcp"
 	"taylor/lib/structs"
@@ -18,9 +19,11 @@ type Client struct {
 	name		string
 	capacity	uint
 	conn		*tcp.Conn
+	jobsRunningMtx  *sync.Mutex
 	jobsRunning	map[string]*structs.Job
 	drivers		map[string]*structs.Driver
 	jobCh		chan *structs.Job
+	msgOutCh	chan interface{}
 }
 
 func (c *Client) HasCapacity() bool {
@@ -59,14 +62,14 @@ func (c *Client) handshake() error {
 	return nil
 }
 
-func (c *Client) sendJobOfferResponse(job *structs.Job, refuseReason string) error {
+func (c *Client) sendJobOfferResponse(job *structs.Job, refuseReason string) {
 	var accepted bool
 	if refuseReason == "" {
 		accepted = true
 	} else {
 		accepted = false
 	}
-	return c.conn.WriteMessage(tcp.MsgJobAccepted{
+	c.msgOutCh <- tcp.MsgJobAccepted{
 		MsgBase: tcp.MsgBase{
 			Command: tcp.MSG_JOB_ACCEPTED,
 			NodeName: c.name,
@@ -75,10 +78,12 @@ func (c *Client) sendJobOfferResponse(job *structs.Job, refuseReason string) err
 		Accepted: accepted,
 		RefuseReason: refuseReason,
 		Job: *job,
-	})
+	}
 }
 
-func (c *Client) acceptJobOffer(job *structs.Job) error {
+func (c *Client) acceptJobOffer(job *structs.Job) {
+	c.jobsRunningMtx.Lock()
+	defer c.jobsRunningMtx.Unlock()
 	fmt.Println("Have capacity")
 
 	job.Status = structs.JOB_STATUS_SCHEDULED
@@ -86,11 +91,11 @@ func (c *Client) acceptJobOffer(job *structs.Job) error {
 
 	c.jobsRunning[job.Id] = job
 
-	return c.sendJobOfferResponse(job, "")
+	c.sendJobOfferResponse(job, "")
 }
 
-func (c *Client) rejectJobOffer(job *structs.Job, reason string) error {
-	return c.sendJobOfferResponse(job, reason)
+func (c *Client) rejectJobOffer(job *structs.Job, reason string) {
+	c.sendJobOfferResponse(job, reason)
 }
 
 func (c *Client) connect(clusterAddr string) error {
@@ -104,6 +109,18 @@ func (c *Client) connect(clusterAddr string) error {
 	if err = c.handshake(); err != nil {
 		return err
 	}
+
+	// msgOutCh
+	go func() {
+		for {
+			pl := <- c.msgOutCh
+			err := c.conn.WriteMessage(pl)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing %v\n", err)
+				// break
+			}
+		}
+	}()
 
 	for {
 		message, cmd, err := c.conn.ReadMessage()
@@ -137,13 +154,27 @@ func (c *Client) close() {
 	}
 }
 
-func (c *Client) execJob(job *structs.Job) error {
-	driver := c.drivers["exec"]
+func (c *Client) execJob(job *structs.Job) (err error) {
+	
+	driver, in := c.drivers[job.Driver]
+	if in == false {
+		return errors.New(fmt.Sprintf("driver %s not registered\n", job.Driver))
+	}
 
-	return driver.Run(job, driver, nil)
+	defer func() {
+		if panicErr := recover(); panicErr != nil {
+			err = errors.New(fmt.Sprintf("Exception while running job: %+v", panicErr))
+		}
+	}()
+
+	err = driver.Run(job, driver, nil)
+	return err
 }
 
-func (c *Client) handleJobDone(job *structs.Job, success bool) error {
+func (c *Client) handleJobDone(job *structs.Job, success bool) {
+	c.jobsRunningMtx.Lock()
+	defer c.jobsRunningMtx.Unlock()
+
 	delete(c.jobsRunning, job.Id)
 
 	if success == true {
@@ -152,11 +183,7 @@ func (c *Client) handleJobDone(job *structs.Job, success bool) error {
 		job.Status = structs.JOB_STATUS_ERROR
 	}
 
-	return c.sendJobDone(job, success)
-}
-
-func (c *Client) sendJobDone(job *structs.Job, success bool) error {
-	return c.conn.WriteMessage(tcp.MsgJobDone{
+	c.msgOutCh <- tcp.MsgJobDone{
 		MsgBase: tcp.MsgBase{
 			Command: tcp.MSG_JOB_DONE,
 			NodeName: c.name,
@@ -164,7 +191,7 @@ func (c *Client) sendJobDone(job *structs.Job, success bool) error {
 		},
 		Success: success,
 		Job: *job,
-	})
+	}
 }
 
 func (c *Client) startJobRunner() {
@@ -218,9 +245,11 @@ func Run(args []string) int {
 	client := &Client{
 		name:		config.Name,
 		capacity:	config.Scheduler.MaxParallelJobs,
+		jobsRunningMtx: &sync.Mutex{},
 		jobsRunning:	make(map[string]*structs.Job),
 		drivers:	driverMap,
 		jobCh:		make(chan *structs.Job, config.Scheduler.MaxParallelJobs),
+		msgOutCh:	make(chan interface{}, 5),
 	}
 
 	defer client.close()

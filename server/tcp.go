@@ -49,6 +49,15 @@ func (s *TcpServer) deregisterNode(n *Node) {
 	_, in := s.nodes[n.Name]
 	if in {
 		fmt.Printf("Deregister %s\n", n.Name)
+		jobs, err := s.store.JobsFromNodeWithStatus(n.Name, structs.JOB_STATUS_SCHEDULED)
+		if err == nil {
+			// put jobs back on queue
+			for _, job := range jobs {
+				fmt.Printf("Set job %s (%s) as failed\n", job.Id, job.Identifier)
+				s.store.UpdateJobStatus(job.Id, structs.JOB_STATUS_ERROR)
+			}
+		}
+		
 		delete(s.nodes, n.Name)
 		n.conn.Close()
 	}
@@ -159,19 +168,19 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 
 	registered := s.registerNode(&node)
 	if registered == false {
-		s.handshakeEnd(c, fmt.Sprintf("Already node registered with name %s\n", nodeName))
-		c.Close()
+		s.handshakeEnd(node.conn, fmt.Sprintf("Already node registered with name %s\n", nodeName))
+		node.conn.Close()
 		return
 	}
 	// will close connection 
 	defer s.deregisterNode(&node)
 		
 	// everything ok
-	s.handshakeEnd(c, "")
+	s.handshakeEnd(node.conn, "")
 
-	fmt.Println("Handshake done for", c)
+	fmt.Println("Handshake done for", nodeName)
 	for {
-		message, cmd, err := c.ReadMessage()
+		message, cmd, err := node.conn.ReadMessage()
 		if err != nil {
 			// To-Do: go through all jobs at that agent that are SCHEDULED and put them back into queue
 			fmt.Fprintf(os.Stderr, "Client Error: %v\n", err)
