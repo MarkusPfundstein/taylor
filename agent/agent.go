@@ -158,7 +158,7 @@ func (c *Client) execJob(job *structs.Job) (err error) {
 	
 	driver, in := c.drivers[job.Driver]
 	if in == false {
-		return errors.New(fmt.Sprintf("driver %s not registered\n", job.Driver))
+		return errors.New(fmt.Sprintf("driver %s not registered", job.Driver))
 	}
 
 	defer func() {
