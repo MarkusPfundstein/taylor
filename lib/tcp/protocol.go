@@ -18,6 +18,7 @@ const (
 	MSG_NEW_JOB_OFFER
 	MSG_JOB_ACCEPTED
 	MSG_JOB_DONE
+	MSG_JOB_UPDATE
 )
 
 type MsgBase struct {
@@ -52,6 +53,13 @@ type MsgJobAccepted struct {
 type MsgJobDone struct {
 	MsgBase
 	Success		bool		`json:"success"`
+	Job		structs.Job	`json:"job"`
+}
+
+type MsgJobUpdate struct {
+	MsgBase
+	Progress	float32		`json:"progress"`
+	Message		string		`json:"message"`
 	Job		structs.Job	`json:"job"`
 }
 
@@ -92,6 +100,10 @@ func Decode(message string) (interface{}, int, error) {
 		return r, r.Command, err
 	case MSG_JOB_DONE:
 		var r MsgJobDone
+		err = json.Unmarshal(hsJson, &r)
+		return r, r.Command, err
+	case MSG_JOB_UPDATE:
+		var r MsgJobUpdate
 		err = json.Unmarshal(hsJson, &r)
 		return r, r.Command, err
 	default:

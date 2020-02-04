@@ -199,6 +199,9 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
+		case tcp.MSG_JOB_UPDATE:
+			response, _ := message.(tcp.MsgJobUpdate)
+			fmt.Printf("Job update: %+v\n", response)
 		default:
 			fmt.Println("Unknown command received")
 		}

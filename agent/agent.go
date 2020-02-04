@@ -22,7 +22,7 @@ type Client struct {
 	jobsRunningMtx  *sync.Mutex
 	jobsRunning	map[string]*structs.Job
 	drivers		map[string]*structs.Driver
-	jobCh		chan *structs.Job
+	newJobCh	chan *structs.Job
 	msgOutCh	chan interface{}
 }
 
@@ -136,7 +136,7 @@ func (c *Client) connect(clusterAddr string) error {
 			fmt.Println(jobOffer.Job)
 			if c.HasCapacity() {
 				c.acceptJobOffer(&jobOffer.Job)
-				c.jobCh <- &jobOffer.Job
+				c.newJobCh <- &jobOffer.Job
 			} else {
 				c.rejectJobOffer(&jobOffer.Job, "No capacity")
 			}
@@ -154,6 +154,20 @@ func (c *Client) close() {
 	}
 }
 
+func (c *Client) onJobUpdate(job *structs.Job, progress float32, message string) {
+	fmt.Println("On Job Update", progress, message)
+	c.msgOutCh <- tcp.MsgJobUpdate{
+		MsgBase: tcp.MsgBase{
+			Command: tcp.MSG_JOB_UPDATE,
+			NodeName: c.name,
+			JobsRunning: uint(len(c.jobsRunning)),
+		},
+		Progress: progress,
+		Message:  message,
+		Job:	  *job,
+	}
+}
+
 func (c *Client) execJob(job *structs.Job) (err error) {
 	
 	driver, in := c.drivers[job.Driver]
@@ -167,7 +181,7 @@ func (c *Client) execJob(job *structs.Job) (err error) {
 		}
 	}()
 
-	err = driver.Run(job, driver, nil)
+	err = driver.Run(job, driver, c.onJobUpdate, nil)
 	return err
 }
 
@@ -198,7 +212,7 @@ func (c *Client) startJobRunner() {
 	go func() {
 		for {
 			fmt.Println("Waiting for job")
-			job := <- c.jobCh
+			job := <- c.newJobCh
 			go func(job *structs.Job) {
 				fmt.Println("Got a job to do...")
 				err := c.execJob(job)
@@ -217,7 +231,7 @@ func (c *Client) startJobRunner() {
 func initDrivers(config *Config) map[string]*structs.Driver {
 	driverMap := make(map[string]*structs.Driver)
 
-	execDriver := drivers.NewExecDriver()
+	execDriver := drivers.NewExecDriver(nil)
 	driverMap[execDriver.Name] = execDriver
 
 	return driverMap
@@ -248,7 +262,7 @@ func Run(args []string) int {
 		jobsRunningMtx: &sync.Mutex{},
 		jobsRunning:	make(map[string]*structs.Job),
 		drivers:	driverMap,
-		jobCh:		make(chan *structs.Job, config.Scheduler.MaxParallelJobs),
+		newJobCh:	make(chan *structs.Job, config.Scheduler.MaxParallelJobs),
 		msgOutCh:	make(chan interface{}, 5),
 	}
 
