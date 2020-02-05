@@ -9,7 +9,7 @@ distributed worker queue written in golang
 
 ## To-Do
 
-- pipe exec stdout and stderr back to server
+- write job updates from server to logfile
 - consul integration
 - docker driver
 - add maximal job lifetime
