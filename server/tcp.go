@@ -63,34 +63,43 @@ func (s *TcpServer) deregisterNode(n *Node) {
 	}
 }
 
-func (s *TcpServer) handshakeStart(c *tcp.Conn) (string, string, error) {
+func (s *TcpServer) handshakeStart(c *tcp.Conn) (*Node, string, error) {
 	// establish handshake
 	fmt.Println("Wait for handshake message")
 	data, _, err := c.ReadMessage()
 	if err != nil {
-		return "", "", err
+		return nil, "", err
 	}
 
 	msg, ok := data.(tcp.MsgHandshakeInitial)
 	if ok == false {
-		return "Invalid data", "", nil
+		return nil, "Invalid data", nil
 	}
 
 	if msg.NodeType != "agent" {
-		return "Only agents can join (for now)", "", nil
+		return nil, "Only agents can join (for now)", nil
 	}
 
-	return "", msg.NodeName, nil
+	node := &Node{
+		Name: msg.NodeName,
+		Capacity: msg.Capacity,		// for now
+		JobsRunning: msg.JobsRunning,
+		conn: c,
+	}
+
+	fmt.Printf("New node: %+v\n", node)
+
+	return node, "", nil
 }
 
-func (s *TcpServer) handshakeEnd(c *tcp.Conn, refuseReason string) error {
+func (s *TcpServer) handshakeEnd(node *Node, refuseReason string) error {
 	var accepted bool
 	if refuseReason != "" {
 		accepted = false
 	} else {
 		accepted = true
 	}
-	return c.WriteMessage(tcp.MsgHandshakeResponse{
+	return node.conn.WriteMessage(tcp.MsgHandshakeResponse{
 		MsgBase: tcp.MsgBase{
 			Command: tcp.MSG_HANDSHAKE_RESPONSE,
 			NodeName: s.config.Name,
@@ -101,13 +110,6 @@ func (s *TcpServer) handshakeEnd(c *tcp.Conn, refuseReason string) error {
 }
 
 func (s *TcpServer) handleMsgJobDone(response *tcp.MsgJobDone) error {
-	node, in := s.nodes[response.NodeName]
-	if in == false {
-		return errors.New(fmt.Sprintf("Node %s not available anymore.", response.NodeName))
-	}
-
-	node.JobsRunning = response.JobsRunning
-
 	fmt.Printf("Job %s (%s) success status: %v\n", response.Job.Id, response.Job.Identifier, response.Success)
 
 	err := s.store.UpdateJobStatus(response.Job.Id, response.Job.Status)
@@ -124,13 +126,6 @@ func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {
 
 	fmt.Printf("Node %s accepted work\n", response.NodeName);
 
-	node, in := s.nodes[response.NodeName]
-	if in == false {
-		return errors.New(fmt.Sprintf("Node %s not available anymore.", response.NodeName))
-	}
-
-	node.JobsRunning = response.JobsRunning
-
 	err := s.store.UpdateJobStatus(response.Job.Id, structs.JOB_STATUS_SCHEDULED)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
@@ -143,9 +138,20 @@ func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {
 	return nil
 }
 
+func (s *TcpServer) updateNodeFromMessage(msgBase tcp.MsgBase, agentInfo tcp.MsgAgentInfo) error {
+	node, in := s.nodes[msgBase.NodeName]
+	if in == false {
+		return errors.New(fmt.Sprintf("Node %s not available anymore.", msgBase.NodeName))
+	}
+
+	node.JobsRunning = agentInfo.JobsRunning
+	node.Capacity = agentInfo.Capacity
+	return nil
+}
+
 func (s *TcpServer) handleConn(c *tcp.Conn) {
 
-	refuseReason, nodeName, err := s.handshakeStart(c)
+	node, refuseReason, err := s.handshakeStart(c)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		c.Close()
@@ -154,31 +160,25 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 
 	// there was something wrong in handshake message
 	if refuseReason != "" {
-		s.handshakeEnd(c, refuseReason)
-		c.Close()
+		s.handshakeEnd(node, refuseReason)
+		node.conn.Close()
 		return
 	}
 
-	node := Node{
-		Name: nodeName,
-		Capacity: 3,		// for now
-		JobsRunning: 0,
-		conn: c,
-	}
-
-	registered := s.registerNode(&node)
+	// we can't register node with same name twice
+	registered := s.registerNode(node)
 	if registered == false {
-		s.handshakeEnd(node.conn, fmt.Sprintf("Already node registered with name %s\n", nodeName))
+		s.handshakeEnd(node, fmt.Sprintf("Already node registered with name %s\n", node.Name))
 		node.conn.Close()
 		return
 	}
 	// will close connection 
-	defer s.deregisterNode(&node)
+	defer s.deregisterNode(node)
 		
 	// everything ok
-	s.handshakeEnd(node.conn, "")
+	s.handshakeEnd(node, "")
 
-	fmt.Println("Handshake done for", nodeName)
+	fmt.Println("Handshake done for", node.Name)
 	for {
 		message, cmd, err := node.conn.ReadMessage()
 		if err != nil {
@@ -186,21 +186,34 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			fmt.Fprintf(os.Stderr, "Client Error: %v\n", err)
 			return
 		}
+
 		switch (cmd) {
 		case tcp.MSG_JOB_ACCEPTED:
 			response, _ := message.(tcp.MsgJobAccepted)
-			err := s.handleMsgJobAccepted(&response)
+			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
+			err = s.handleMsgJobAccepted(&response)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 		case tcp.MSG_JOB_DONE:
 			response, _ := message.(tcp.MsgJobDone)
-			err := s.handleMsgJobDone(&response)
+			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
+			err = s.handleMsgJobDone(&response)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
 		case tcp.MSG_JOB_UPDATE:
 			response, _ := message.(tcp.MsgJobUpdate)
+			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
 			fmt.Printf("Job update: %+v\n", response)
 		default:
 			fmt.Println("Unknown command received")

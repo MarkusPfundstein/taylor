@@ -10,8 +10,10 @@ import (
 	"taylor/lib/structs"
 )
 
+type MsgCmd int
+
 const (
-	_ int			= iota
+	_ MsgCmd		= iota
 	MSG_HANDSHAKE_INITIAL
 	MSG_HANDSHAKE_RESPONSE
 
@@ -22,13 +24,18 @@ const (
 )
 
 type MsgBase struct {
-	Command		int	`json:"command"`
+	Command		MsgCmd	`json:"command"`
 	NodeName	string  `json:"node_name"`
+}
+
+type MsgAgentInfo struct {
 	JobsRunning	uint	`json:"jobs_running"`
+	Capacity	uint	`json:"capacity"`
 }
 
 type MsgHandshakeInitial struct {
 	MsgBase
+	MsgAgentInfo
 	NodeType	string	`json:"node_type"`
 }
 
@@ -45,6 +52,7 @@ type MsgNewJobOffer struct {
 
 type MsgJobAccepted struct {
 	MsgBase
+	MsgAgentInfo
 	Accepted	bool		`json:"accepted"`
 	RefuseReason	string		`json:"refuse_reason"`
 	Job		structs.Job	`json:"job"`
@@ -52,12 +60,14 @@ type MsgJobAccepted struct {
 
 type MsgJobDone struct {
 	MsgBase
+	MsgAgentInfo
 	Success		bool		`json:"success"`
 	Job		structs.Job	`json:"job"`
 }
 
 type MsgJobUpdate struct {
 	MsgBase
+	MsgAgentInfo
 	Progress	float32		`json:"progress"`
 	Message		string		`json:"message"`
 	Job		structs.Job	`json:"job"`
@@ -71,7 +81,7 @@ func Encode(message interface{}) (string, error) {
 	return base64.RawStdEncoding.EncodeToString(hsMsg) + "\n", nil
 }
 
-func Decode(message string) (interface{}, int, error) {
+func Decode(message string) (interface{}, MsgCmd, error) {
 	hsJson, err := base64.RawStdEncoding.DecodeString(strings.TrimSuffix(message, "\n"))
 	if err != nil {
 		return nil, 0, err
@@ -81,6 +91,7 @@ func Decode(message string) (interface{}, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+
 	switch base.Command {
 	case MSG_HANDSHAKE_INITIAL:
 		var r MsgHandshakeInitial

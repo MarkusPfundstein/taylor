@@ -39,7 +39,7 @@ func (t *Conn) Raddr() string {
 	return t.conn.RemoteAddr().String()
 }
 
-func (t *Conn) ReadMessage() (interface{}, int, error) {
+func (t *Conn) ReadMessage() (interface{}, MsgCmd, error) {
 	data, err := t.readString('\n')
 	if err != nil {
 		return nil, 0, err

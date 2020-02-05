@@ -34,11 +34,9 @@ func (c *Client) handshake() error {
 
 	// create handshake message
 	 err := c.conn.WriteMessage(tcp.MsgHandshakeInitial{
-		MsgBase: tcp.MsgBase{
-			Command: tcp.MSG_HANDSHAKE_INITIAL,
-			NodeName: c.name,
-		},
-		NodeType: "agent",
+		 MsgBase: c.GetMsgBase(tcp.MSG_HANDSHAKE_INITIAL),
+		 MsgAgentInfo: c.GetMsgAgentInfo(),
+		 NodeType: "agent",
 	})
 
 	fmt.Println("Wait for handshake response")
@@ -70,11 +68,8 @@ func (c *Client) sendJobOfferResponse(job *structs.Job, refuseReason string) {
 		accepted = false
 	}
 	c.msgOutCh <- tcp.MsgJobAccepted{
-		MsgBase: tcp.MsgBase{
-			Command: tcp.MSG_JOB_ACCEPTED,
-			NodeName: c.name,
-			JobsRunning: uint(len(c.jobsRunning)),
-		},
+		MsgBase: c.GetMsgBase(tcp.MSG_JOB_ACCEPTED),
+		MsgAgentInfo: c.GetMsgAgentInfo(),
 		Accepted: accepted,
 		RefuseReason: refuseReason,
 		Job: *job,
@@ -157,11 +152,8 @@ func (c *Client) close() {
 func (c *Client) onJobUpdate(job *structs.Job, progress float32, message string) {
 	fmt.Println("On Job Update", progress, message)
 	c.msgOutCh <- tcp.MsgJobUpdate{
-		MsgBase: tcp.MsgBase{
-			Command: tcp.MSG_JOB_UPDATE,
-			NodeName: c.name,
-			JobsRunning: uint(len(c.jobsRunning)),
-		},
+		MsgBase: c.GetMsgBase(tcp.MSG_JOB_UPDATE),
+		MsgAgentInfo: c.GetMsgAgentInfo(),
 		Progress: progress,
 		Message:  message,
 		Job:	  *job,
@@ -185,6 +177,21 @@ func (c *Client) execJob(job *structs.Job) (err error) {
 	return err
 }
 
+func (c *Client) GetMsgBase(cmd tcp.MsgCmd) tcp.MsgBase {
+	return tcp.MsgBase{
+		Command: cmd,
+		NodeName: c.name,
+	}
+}
+
+
+func (c *Client) GetMsgAgentInfo() tcp.MsgAgentInfo {
+	return tcp.MsgAgentInfo{
+		Capacity: c.capacity,
+		JobsRunning: uint(len(c.jobsRunning)),
+	}
+}
+
 func (c *Client) handleJobDone(job *structs.Job, success bool) {
 	c.jobsRunningMtx.Lock()
 	defer c.jobsRunningMtx.Unlock()
@@ -198,11 +205,8 @@ func (c *Client) handleJobDone(job *structs.Job, success bool) {
 	}
 
 	c.msgOutCh <- tcp.MsgJobDone{
-		MsgBase: tcp.MsgBase{
-			Command: tcp.MSG_JOB_DONE,
-			NodeName: c.name,
-			JobsRunning: uint(len(c.jobsRunning)),
-		},
+		MsgBase: c.GetMsgBase(tcp.MSG_JOB_DONE),
+		MsgAgentInfo: c.GetMsgAgentInfo(),
 		Success: success,
 		Job: *job,
 	}
