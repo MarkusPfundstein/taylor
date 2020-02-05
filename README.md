@@ -12,7 +12,7 @@ distributed worker queue written in golang
 - pipe exec stdout and stderr back to server
 - consul integration
 - docker driver
-- automatic socket updates
+- add maximal job lifetime
 - add job.OnError {reschedule, webhook callback, script callback, nothing} (Exec on server)
 - add job.OnSuccess {webhook callback, script callback, nothing} (Exec on server)
 - add TLS

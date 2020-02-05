@@ -214,7 +214,7 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
 			}
-			fmt.Printf("Job update: %+v\n", response)
+			fmt.Printf("Job update from: %s - %s (%s) (progress: %f) - \"%s\"\n", response.Job.Id, response.Job.Identifier, response.NodeName, response.Progress, response.Message)
 		default:
 			fmt.Println("Unknown command received")
 		}

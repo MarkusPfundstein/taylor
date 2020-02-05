@@ -150,7 +150,6 @@ func (c *Client) close() {
 }
 
 func (c *Client) onJobUpdate(job *structs.Job, progress float32, message string) {
-	fmt.Println("On Job Update", progress, message)
 	c.msgOutCh <- tcp.MsgJobUpdate{
 		MsgBase: c.GetMsgBase(tcp.MSG_JOB_UPDATE),
 		MsgAgentInfo: c.GetMsgAgentInfo(),

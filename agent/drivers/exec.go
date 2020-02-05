@@ -3,8 +3,11 @@ package drivers
 import (
 	"fmt"
 	"os"
+	"io"
+	"bufio"
 	"os/exec"
 	"errors"
+	"strings"
 
 	"taylor/lib/structs"
 	"taylor/lib/util"
@@ -59,16 +62,49 @@ func run(job *structs.Job, driver *structs.Driver, onJobUpdate func (job *struct
 
 	fmt.Printf("Exec %s with Args %v, [Env: %v, Dir: %s]\n", shellCmd, shellArgs, cmd.Env, cmd.Dir)
 
-	//onJobUpdate(job, 0, "Start")
-	if err := cmd.Run(); err != nil {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
 		return err
 	}
-	//onJobUpdate(job, 1, "End")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// read stderr in background and stdout on background
+	waitStderr := make(chan int, 0)
+	go func () {
+		readPipe(stderr, func (text string) {
+			onJobUpdate(job, 0, fmt.Sprintf("STDERR >> %s", text))
+		})
+		waitStderr<- 1
+	}()
+	readPipe(stdout, func (text string) {
+		onJobUpdate(job, 0, fmt.Sprintf("STDOUT >> %s", text))
+	})
+
+	<-waitStderr
+
+	if err := cmd.Wait(); err != nil {
+		return err
+	}
 
 	fmt.Printf("Exec success %s\n", driver.Name)
 
 	return nil
 }
+
+func readPipe(pipe io.ReadCloser, onText func (line string)) {
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		onText(strings.TrimRight(line, "\r\n"))
+	}
+}
+
 
 func NewExecDriver(ctx interface{}) *structs.Driver {
 	return &structs.Driver{
