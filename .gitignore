@@ -16,3 +16,4 @@
 tmp/
 bin/
 *.db
+.taylor-dev-tmp/

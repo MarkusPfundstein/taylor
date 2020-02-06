@@ -257,7 +257,7 @@ func initDrivers(config Config) map[string]*structs.Driver {
 }
 
 
-func Run(args []string) int {
+func Run(args []string, devMode bool) int {
 
 	fmt.Println("Args", args)
 	var configPath string
@@ -271,6 +271,10 @@ func Run(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Config Error: %v\n", err)
 		return 1
+	}
+
+	if devMode == true {
+		config.ClusterAddr = "127.0.0.1:8401"
 	}
 
 	driverMap := initDrivers(config)

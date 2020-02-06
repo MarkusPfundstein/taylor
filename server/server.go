@@ -8,14 +8,21 @@ import (
 	"taylor/server/database"
 )
 
-func Run(args []string) int {
+func Run(args []string, devMode bool) int {
 
 	config, err := ReadConfig("./server-config.json")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Read Config Error: %v\n", err)
 		return 1
 	}
+
+	if devMode == true {
+		config.DataDir = ".taylor-dev-tmp/"
+		os.RemoveAll(config.DataDir)
+	}
+
 	if _, err := os.Stat(config.DataDir); os.IsNotExist(err) {
+		fmt.Printf("create data_dir: %s\n", config.DataDir)
 		// create DataDir
 		err = os.MkdirAll(config.DataDir, os.ModePerm)
 		if err != nil {
@@ -34,8 +41,6 @@ func Run(args []string) int {
 	}
 
 	dataBaseDir := path.Join(config.DataDir, "taylor.db")
-	// for now in dev mode
-	os.RemoveAll(dataBaseDir)
 	store, err := database.Open(dataBaseDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Db Error: %v\n", err)
