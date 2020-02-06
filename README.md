@@ -9,6 +9,7 @@ distributed worker queue written in golang
 
 ## To-Do
 
+- add agent side validation of capabilities
 - consul integration
 - docker driver
 - add maximal job lifetime

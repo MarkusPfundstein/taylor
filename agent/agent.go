@@ -93,6 +93,32 @@ func (c *Client) rejectJobOffer(job *structs.Job, reason string) {
 	c.sendJobOfferResponse(job, reason)
 }
 
+func (c *Client) canAcceptJob(job *structs.Job) (bool, string) {
+	if c.HasCapacity() == false {
+		return false, "no capacity"
+	}
+
+	// dont have capabilities
+	nope := false
+	for _, requirement := range job.Restrict {
+		isInIt := false
+		for _, capability := range c.config.Capabilities {
+			if requirement == capability {
+				isInIt = true
+				break
+			}
+		}
+		if isInIt == false {
+			nope = true
+		}
+	}
+	if nope == true {
+		return false, "dont have capabilities"
+	}
+
+	return true, ""
+}
+
 func (c *Client) connect(clusterAddr string) error {
 	tcpConn, err := net.Dial("tcp", clusterAddr)
 	if err != nil {
@@ -129,11 +155,11 @@ func (c *Client) connect(clusterAddr string) error {
 			fmt.Println("Request for work");
 			jobOffer, _ := message.(tcp.MsgNewJobOffer)
 			fmt.Println(jobOffer.Job)
-			if c.HasCapacity() {
+			if can, rejectReason := c.canAcceptJob(&jobOffer.Job); can == false {
+				c.rejectJobOffer(&jobOffer.Job, rejectReason)
+			} else {
 				c.acceptJobOffer(&jobOffer.Job)
 				c.newJobCh <- &jobOffer.Job
-			} else {
-				c.rejectJobOffer(&jobOffer.Job, "No capacity")
 			}
 		default:
 			fmt.Println("Unknown command received")
