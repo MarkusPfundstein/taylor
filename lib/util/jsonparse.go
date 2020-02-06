@@ -3,8 +3,7 @@ package util
 import (
 	"errors"
 	"fmt"
-)
-
+) 
 
 func GetBool(cfg map[string]interface{}, key string, def bool) (bool, error) {
 	v, in := cfg[key]
@@ -54,4 +53,3 @@ func GetArrayOfStrings(cfg map[string]interface{}, key string, def []string) ([]
 	}
 	return casted, nil
 }
-

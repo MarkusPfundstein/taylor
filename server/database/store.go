@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 
 	"taylor/lib/structs"
+	//"taylor/lib/util"
 )
 
 type Store struct {
@@ -30,6 +31,7 @@ func (s *Store) init() error {
 		,agent_name STRING
 		,driver STRING
 		,driver_config STRING
+		,update_handlers STRING
 	);
 	`)
 	if err != nil {
@@ -95,10 +97,11 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 	}
 
 	driverConfig, _ := encodeData(job.DriverConfig)
+	updateHandlers, _ := encodeData(job.UpdateHandlers)
 
 	query := fmt.Sprintf(`
-	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s");
-	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName, job.Driver, string(driverConfig))
+	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config, update_handlers) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s");
+	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName, job.Driver, string(driverConfig), string(updateHandlers))
 
 	_, err = tx.Exec(query)
 	if err != nil {
@@ -123,8 +126,18 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 		var job structs.Job
 		
 		var encodedDriverConfig string
+		var encodedUpdateHandlers string
 
-		err := rows.Scan(&job.Id, &job.Identifier, &job.Status, &job.Timestamp, &job.AgentName, &job.Driver, &encodedDriverConfig)
+		err := rows.Scan(
+			&job.Id,
+			&job.Identifier,
+			&job.Status,
+			&job.Timestamp,
+			&job.AgentName,
+			&job.Driver,
+			&encodedDriverConfig,
+			&encodedUpdateHandlers,
+		)
 		if err != nil {
 			return err
 		}
@@ -132,7 +145,36 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 		decodedDriverConfig, _ := decodeData(encodedDriverConfig)
 		driverConfig, _ := decodedDriverConfig.(map[string]interface{})
 
+		decodedUpdateHandlers, _ := decodeData(encodedUpdateHandlers)
+		updateHandlersTmp, _ := decodedUpdateHandlers.([]interface{})
+
+		// I know. I am not proud of this but I am too lazy now and want to make progress. 
+		updateHandlers := make([]structs.UpdateHandler, len(updateHandlersTmp))
+		for i, handlerTmp := range updateHandlersTmp {
+			handler, _ := handlerTmp.(map[string]interface{})	
+			handlerType, _ := handler["type"].(string)
+			handlerOnTmps, _ := handler["on"].([]interface{})
+			handlerOn := make([]string, len(handlerOnTmps))
+			for j, onTmp := range handlerOnTmps {
+				on, _ := onTmp.(string)
+				handlerOn[j] = on
+			}
+
+			var handlerCfgTmp map[string]interface{}
+			handlerCfgTmp, ok := handler["config"].(map[string]interface{})
+			if ok == false || handlerCfgTmp == nil {
+				handlerCfgTmp = make(map[string]interface{}, 0)
+			}
+
+			updateHandlers[i] = structs.UpdateHandler{
+				Type:		handlerType,
+				OnEventList:	handlerOn,
+				Config:		handlerCfgTmp,
+			}
+		}
+
 		job.DriverConfig = driverConfig
+		job.UpdateHandlers = updateHandlers
 
 		fun(&job)
 	}

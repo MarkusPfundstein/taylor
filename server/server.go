@@ -33,8 +33,9 @@ func Run(args []string) int {
 		}
 	}
 
-	// for now in dev mode
 	dataBaseDir := path.Join(config.DataDir, "taylor.db")
+	// for now in dev mode
+	//os.RemoveAll(dataBaseDir)
 	store, err := database.Open(dataBaseDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Db Error: %v\n", err)

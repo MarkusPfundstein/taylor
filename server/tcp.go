@@ -7,6 +7,7 @@ import (
 	"errors"
 
 	"taylor/server/database"	
+	"taylor/server/handlers"	
 	"taylor/lib/tcp"	
 	"taylor/lib/structs"	
 )
@@ -111,6 +112,32 @@ func (s *TcpServer) handshakeEnd(node *Node, refuseReason string) error {
 	})
 }
 
+func (s *TcpServer) handleUpdateHandlers(job *structs.Job, eventName string, progress float32, message string) {
+	for _, updateHandler := range job.UpdateHandlers {
+		for _, onEvent := range updateHandler.OnEventList {
+			if onEvent == eventName {
+				var err error
+				switch (updateHandler.Type) {
+				case "webhook":
+					err = handlers.ExecWebhook(
+						updateHandler.Config,
+						job,
+						eventName,
+						progress,
+						message,
+					)
+				default:
+					break
+				}
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error during updateHandler %s\n", updateHandler.Type)
+				}
+				break
+			}
+		}
+	}
+}
+
 func (s *TcpServer) registerScheduledJob(job *structs.Job, nodeName string) error {
 	fmt.Printf("Register job: %s at agent: %s\n", job.Id, nodeName)
 
@@ -123,11 +150,15 @@ func (s *TcpServer) registerScheduledJob(job *structs.Job, nodeName string) erro
 	if err := s.store.UpdateJobAgentName(job.Id, nodeName) ; err != nil {
 		return err
 	}
+	s.handleUpdateHandlers(job, "create", 0, "")
 	return nil
 }
 
 func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobStatus) error {
 	fmt.Printf("Deregister job: %s\n", job.Id)
+
+	s.handleUpdateHandlers(job, "done", 1.0, "")
+
 	var err error
 	if err = s.diskLog.Close(job); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -139,6 +170,7 @@ func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobS
 }
 
 func (s *TcpServer) handleMsgJobUpdate(response *tcp.MsgJobUpdate) error {
+	s.handleUpdateHandlers(&response.Job, "update", response.Progress, response.Message)
 	if _, err := s.diskLog.WriteString(&response.Job, response.Message + "\n"); err != nil {
 		return err
 	}

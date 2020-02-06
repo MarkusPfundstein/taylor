@@ -3,7 +3,6 @@ package structs
 import (
 	"github.com/google/uuid"
 	"time"
-	"fmt"
 )
 
 type JobStatus int
@@ -22,6 +21,12 @@ const (
 	JOB_STATUS_ERROR
 )
 
+type UpdateHandler struct {
+	Type		string			`json:"type"`
+	OnEventList	[]string		`json:"on"`
+	Config		map[string]interface{}	`json:"config"`
+}
+
 type Job struct {
 	Id		string			`json:"id"`
 	Identifier	string			`json:"identifier"`
@@ -30,10 +35,12 @@ type Job struct {
 	AgentName	string			`json:"agent_name"`
 	Driver		string			`json:"driver"`
 	DriverConfig	map[string]interface{}	`json:"driver_config"`
+	UpdateHandlers	[]UpdateHandler		`json:"update_handlers"`
 }
 
-func NewJob(id string, driver string, driverConfig map[string]interface{}) *Job {
-	job := Job{
+func NewJob(id string, driver string, driverConfig map[string]interface{}, updateHandlers []UpdateHandler) *Job {
+	// to-do: validate updatehandlers
+	return &Job{
 		Id:		uuid.New().String(),
 		Identifier:	id,
 		Status:		JOB_STATUS_WAITING,
@@ -41,8 +48,7 @@ func NewJob(id string, driver string, driverConfig map[string]interface{}) *Job 
 		AgentName:	"",
 		Driver:		driver,
 		DriverConfig:	driverConfig,
+		UpdateHandlers: updateHandlers,
 	}
-	fmt.Printf("make job: %v\n", job)
-	return &job
 }
 
