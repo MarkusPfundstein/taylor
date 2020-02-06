@@ -12,10 +12,11 @@ import (
 )
 
 type JobDefinition struct {
-	Identifier	string					`json:"identifier"`
-	Driver		string					`json:"driver"`
-	DriverConfig	map[string]interface{}			`json:"driver_config"`
+	Identifier	string				`json:"identifier"`
+	Driver		string				`json:"driver"`
+	DriverConfig	map[string]interface{}		`json:"driver_config"`
 	UpdateHandlers	[]structs.UpdateHandler		`json:"update_handlers"`
+	Restrict	[]string			`json:"restrict"`
 }
 
 type ApiDependencies struct {
@@ -36,11 +37,16 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 		return
 	}
 
+	if jobDef.Restrict == nil {
+		jobDef.Restrict = make([]string, 0)
+	}
+
 	job := structs.NewJob(
 		jobDef.Identifier,
 		jobDef.Driver,
 		jobDef.DriverConfig,
 		jobDef.UpdateHandlers,
+		jobDef.Restrict,
 	)
 
 	fmt.Printf("%+v", job)

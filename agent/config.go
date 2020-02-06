@@ -15,30 +15,31 @@ type SchedulerConfig struct {
 type Config struct {
 	ClusterAddr	string		`json:"cluster"`
 	Name		string		`json:"name"`
+	Capabilities	[]string	`json:"capabilities"`
 	Scheduler	SchedulerConfig	`json:"scheduler"`
 }
 
-func ReadConfig(path string) (*Config, error) {
+func ReadConfig(path string) (Config, error) {
 	var config Config
 
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return config, err
 	}
 
 	err = json.Unmarshal(data, &config)
 	if err != nil {
-		return nil, err
+		return config, err
 	}
 
 	if config.ClusterAddr == "" {
-		return nil, errors.New("no cluster address found in config")
+		return config, errors.New("no cluster address found in config")
 	}
 
 	if config.Name == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
-			return nil, errors.New("No name provided and error reading hostname")
+			return config, errors.New("No name provided and error reading hostname")
 		}
 		config.Name = "taylor.agent." + hostname
 	}
@@ -46,8 +47,11 @@ func ReadConfig(path string) (*Config, error) {
 	if config.Scheduler.MaxParallelJobs == 0 {
 		config.Scheduler.MaxParallelJobs = 1
 	}
+	if config.Capabilities == nil {
+		config.Capabilities = make([]string, 0)
+	}
 
 	fmt.Printf("%+v\n", config)
 
-	return &config, nil
+	return config, nil
 }

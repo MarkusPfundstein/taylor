@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"math/rand"
-	"math"
+	"sort"
 
 	"taylor/server/database"
 	"taylor/lib/structs"
+	"taylor/lib/util"
 	"taylor/lib/tcp"
 )
 
@@ -20,113 +20,93 @@ type Scheduler struct {
 	config		Config
 }
 
-func freeNodes(nodes []*Node) ([]*Node, uint) {
-	sumCap := uint(0)
-	freeNodes := make([]*Node, 0)
-	for _, node := range nodes {
-		if node.Capacity > node.JobsRunning {
-			freeNodes = append(freeNodes, node)
-			sumCap = sumCap + (node.Capacity - node.JobsRunning)
-		}
-	}
-	return freeNodes, sumCap
-}
-
-type NodeProxyJobMap struct {
-	node *NodeProxy
-	job  *structs.Job 
-}
-
 type NodeJobMap struct {
 	node *Node
 	job  *structs.Job 
 }
 
-// A proxy for the Node struct that only has the important values
-// necessary to calculate the distribution
-type NodeProxy struct {
-	Capacity	uint
-	JobsRunning	uint
-	Name		string
-	// original index of the Node in the nodes slice.
-	ogIdx		int
-}
-
-func removeNode(slice []*NodeProxy, s int) []*NodeProxy {
+func removeNode(slice []*Node, s int) []*Node{
     return append(slice[:s], slice[s+1:]...)
 }
 
-func (node *NodeProxy) HasFreeCapacity() bool {
-	return (node.Capacity - node.JobsRunning) > 0
+func nodesWithCapabilities(restrict []string, nodes []*Node) []*Node{
+	res := []*Node{}
+	
+	for _, node := range nodes {
+		ok := util.IsSubsetString(restrict, node.Capabilities)
+		if ok == true {
+			res = append(res, node)
+		}
+	}
+	
+	return res
 }
 
-func distribute(jobs []*structs.Job, nodesIn []*Node) []NodeJobMap{
+func sortCapableNodes(nodes []*Node) {
+	sort.Slice(nodes[:], func (i int, j int) bool {
+		return len(nodes[i].Capabilities) < len(nodes[j].Capabilities)
+	})
+}
 
-	res := make([]NodeProxyJobMap, 0)
+func freeNodes(nodes []*Node) []*Node {
 
-	nodes := make([]*NodeProxy, len(nodesIn))
-	for i, v := range(nodesIn) {
-		// We need a proxy because we will do some increment
-		nodes[i]= &NodeProxy{
-			Capacity:    	v.Capacity,
-			JobsRunning: 	v.JobsRunning,
-			Name: 		v.Name,
-			ogIdx: 		i,
+	freeNodes := make([]*Node, 0)
+	for _, node := range nodes {
+		if node.Capacity > node.JobsRunning {
+			freeNodes = append(freeNodes, node)
 		}
 	}
+	return freeNodes
+}
 
-	// pick some connected node at random to start round robin on
-	counter := rand.Intn(len(nodes))
-	for i := 0; i < len(jobs); i++ {
-		// round robin
-		idx := counter % len(nodes)
-		counter++
-		node := nodes[idx]
-		if node.HasFreeCapacity() {
-			// we can schedule
-			res = append(res, NodeProxyJobMap{
-				node: node,
-				job: jobs[i],
-			})
-			node.JobsRunning++
-			// check if we still dont have any capacity. if so, remove preliminary
-			if node.HasFreeCapacity() == false {
-				nodes = removeNode(nodes, idx)
+func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
+
+	proxyNodes := make([]*Node, len(nodesIn ))
+
+	for idx, node := range nodesIn {
+		copy := *node
+		proxyNodes[idx] = &copy
+	}
+
+	nodeProxyJobMaps := make([]NodeJobMap, 0)
+	
+	for _, job := range jobs {
+		// find all nodes that have some space left
+		freeNodes := freeNodes(proxyNodes)
+		
+		// filter out all nodes that are not capable of handling the job
+		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
+		
+		// sort by capability. the ones with the least comes first
+		sortCapableNodes(capableNodes)
+	
+		for idx, node := range capableNodes{
+			// this check shouldn't be necessary as we filtered out above all full nodes already. but we just leave it for now until we have unit tests :-)
+			if (node.Capacity - node.JobsRunning) > 0 {
+				nodeProxyJobMaps = append(nodeProxyJobMaps, NodeJobMap{
+					node: node,
+					job: job,
+				})
+				node.JobsRunning++
+				// remove preliminarily
+				if (node.Capacity - node.JobsRunning) > 0 {
+					removeNode(capableNodes, idx)
+				}
+				break
+			} else {			
+				removeNode(capableNodes, idx)
 			}
-		} else {
-			nodes = removeNode(nodes, idx)
-			// couldnt schedule try again
-			i--
-		}
-		// this should never happen
-		if len(nodes) == 0 {
-			break
 		}
 	}
-
-	// get original Nodes out. Copy over from NodeProxyJobMap to NodeJobMap
-	out := make([]NodeJobMap, len(res))
-	for i, v := range res {
-		out[i] = NodeJobMap{
-			node: nodesIn[v.node.ogIdx],
-			job:  v.job,
-		}
-	}
-
-	return out
+	
+	return nodeProxyJobMaps
 }
 
 func (s *Scheduler) schedule () {
 	for {
 		time.Sleep(s.sleepMs * time.Millisecond)
 		
-		// get all nodes and check if they have free capacity
-		freeNodes, cap := freeNodes(s.tcpServer.Nodes())
-		if len(freeNodes) == 0 {
-			continue
-		}
-
-		jobs, err := s.store.JobsWithStatus(structs.JOB_STATUS_WAITING, cap)
+		jobs, err := s.store.JobsWithStatus(structs.JOB_STATUS_WAITING, 0)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error %v\n", err)
 			// what shall we do?
@@ -136,20 +116,14 @@ func (s *Scheduler) schedule () {
 			continue
 		}
 
-		fmt.Printf("free capacity %d over %d nodes\n", cap, len(freeNodes))
-		fmt.Printf("Got %d jobs to distribute\n", len(jobs))
+		fmt.Printf("distribute %d over %d nodes\n", len(jobs), len(s.tcpServer.Nodes()))
 
-		distributed := distribute(jobs, freeNodes)
-
-		// informative message if my algorithm suxxxx
-		if len(distributed) != int(math.Min(float64(len(jobs)), float64(cap))) {
-			fmt.Printf("MISTAKE DURING SCHEDULING (scheduled: %d, needed: %d)\n", len(distributed), cap)
-		}
+		distributed := distribute(s.tcpServer.Nodes(), jobs)
 
 		// try to schedule all jobs on corresponding nodes
 		var wg sync.WaitGroup
 		for _, v := range distributed {
-			fmt.Printf("%s -> %s\n", v.job.Identifier, v.node.Name)
+			fmt.Printf("%s [%v]-> %s [%v]\n", v.job.Identifier, v.job.Restrict, v.node.Name, v.node.Capabilities)
 
 			wg.Add(1)
 			go func (njm NodeJobMap) {
@@ -173,7 +147,7 @@ func (s *Scheduler) schedule () {
 
 func StartScheduler(config Config, store *database.Store, server *TcpServer) {
 	scheduler := Scheduler{
-		sleepMs: 1000,
+		sleepMs: 10000,
 		store: store,
 		tcpServer: server,
 		config: config,

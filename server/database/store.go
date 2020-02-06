@@ -32,6 +32,7 @@ func (s *Store) init() error {
 		,driver STRING
 		,driver_config STRING
 		,update_handlers STRING
+		,restrict STRING
 	);
 	`)
 	if err != nil {
@@ -98,10 +99,21 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 
 	driverConfig, _ := encodeData(job.DriverConfig)
 	updateHandlers, _ := encodeData(job.UpdateHandlers)
+	restrict, _ := encodeData(job.Restrict)
 
 	query := fmt.Sprintf(`
-	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config, update_handlers) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s");
-	`, job.Id, job.Identifier, job.Status, job.Timestamp, job.AgentName, job.Driver, string(driverConfig), string(updateHandlers))
+	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config, update_handlers, restrict) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s", "%s");
+	`,
+		job.Id,
+		job.Identifier,
+		job.Status,
+		job.Timestamp,
+		job.AgentName,
+		job.Driver,
+		string(driverConfig),
+		string(updateHandlers),
+		string(restrict),
+	)
 
 	_, err = tx.Exec(query)
 	if err != nil {
@@ -127,6 +139,7 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 		
 		var encodedDriverConfig string
 		var encodedUpdateHandlers string
+		var encodedRestrict string
 
 		err := rows.Scan(
 			&job.Id,
@@ -137,6 +150,7 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 			&job.Driver,
 			&encodedDriverConfig,
 			&encodedUpdateHandlers,
+			&encodedRestrict,
 		)
 		if err != nil {
 			return err
@@ -173,8 +187,18 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 			}
 		}
 
+		decodedRestrict, _ := decodeData(encodedRestrict)
+		restrictTmp, _ := decodedRestrict.([]interface{})
+		restrict := make([]string, len(restrictTmp))
+
+		for i, tmp := range(restrictTmp) {
+			r, _ := tmp.(string)
+			restrict[i] = r
+		}
+
 		job.DriverConfig = driverConfig
 		job.UpdateHandlers = updateHandlers
+		job.Restrict = restrict
 
 		fun(&job)
 	}

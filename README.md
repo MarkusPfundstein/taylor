@@ -9,9 +9,11 @@ distributed worker queue written in golang
 
 ## To-Do
 
+- add job priorities
 - consul integration
 - docker driver
 - add maximal job lifetime
+- add possibility to distribute job scripts to agents
 - add job.OnError {reschedule, script callback, nothing} (Exec on server)
 - add job.OnSuccess {script callback, nothing} (Exec on server)
 - add job.OnUpdate {script callback, nothing} (Exec on server)
