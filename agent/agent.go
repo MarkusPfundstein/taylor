@@ -11,6 +11,7 @@ import (
 
 	"taylor/lib/tcp"
 	"taylor/lib/structs"
+	"taylor/lib/util"
 	"taylor/agent/drivers"
 )
 
@@ -95,25 +96,13 @@ func (c *Client) rejectJobOffer(job *structs.Job, reason string) {
 
 func (c *Client) canAcceptJob(job *structs.Job) (bool, string) {
 	if c.HasCapacity() == false {
-		return false, "no capacity"
+		return false, "Node has no capacity left"
 	}
 
 	// dont have capabilities
-	nope := false
-	for _, requirement := range job.Restrict {
-		isInIt := false
-		for _, capability := range c.config.Capabilities {
-			if requirement == capability {
-				isInIt = true
-				break
-			}
-		}
-		if isInIt == false {
-			nope = true
-		}
-	}
-	if nope == true {
-		return false, "dont have capabilities"
+	ok := util.IsSubsetString(job.Restrict, c.config.Capabilities)
+	if ok == false {
+		return false, "Node doesn't have required capabilities"
 	}
 
 	return true, ""

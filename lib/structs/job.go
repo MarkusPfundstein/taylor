@@ -53,4 +53,3 @@ func NewJob(id string, driver string, driverConfig map[string]interface{}, updat
 		Restrict:	restrict,
 	}
 }
-

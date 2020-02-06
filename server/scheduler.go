@@ -9,6 +9,7 @@ import (
 
 	"taylor/server/database"
 	"taylor/lib/structs"
+	"taylor/lib/util"
 	"taylor/lib/tcp"
 )
 
@@ -32,20 +33,8 @@ func nodesWithCapabilities(restrict []string, nodes []*Node) []*Node{
 	res := []*Node{}
 	
 	for _, node := range nodes {
-		nope := false
-		for _, requirement := range restrict {
-			isInIt := false
-			for _, capability := range node.Capabilities {
-				if requirement == capability {
-					isInIt = true
-					break
-				}
-			}
-			if isInIt == false {
-				nope = true
-			}
-		}
-		if nope == false {
+		ok := util.IsSubsetString(restrict, node.Capabilities)
+		if ok == true {
 			res = append(res, node)
 		}
 	}
