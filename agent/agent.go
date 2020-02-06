@@ -17,7 +17,7 @@ import (
 
 type Client struct {
 	name		string
-	capacity	uint
+	config		Config
 	conn		*tcp.Conn
 	jobsRunningMtx  *sync.Mutex
 	jobsRunning	map[string]*structs.Job
@@ -27,7 +27,7 @@ type Client struct {
 }
 
 func (c *Client) HasCapacity() bool {
-	return (c.capacity - uint(len(c.jobsRunning))) > 0
+	return (c.config.Scheduler.MaxParallelJobs - uint(len(c.jobsRunning))) > 0
 }
 
 func (c *Client) handshake() error {
@@ -82,7 +82,7 @@ func (c *Client) acceptJobOffer(job *structs.Job) {
 	fmt.Println("Have capacity")
 
 	job.Status = structs.JOB_STATUS_SCHEDULED
-	job.AgentName = c.name
+	job.AgentName = c.config.Name
 
 	c.jobsRunning[job.Id] = job
 
@@ -179,15 +179,16 @@ func (c *Client) execJob(job *structs.Job) (err error) {
 func (c *Client) GetMsgBase(cmd tcp.MsgCmd) tcp.MsgBase {
 	return tcp.MsgBase{
 		Command: cmd,
-		NodeName: c.name,
+		NodeName: c.config.Name,
 	}
 }
 
 
 func (c *Client) GetMsgAgentInfo() tcp.MsgAgentInfo {
 	return tcp.MsgAgentInfo{
-		Capacity: c.capacity,
+		Capacity: c.config.Scheduler.MaxParallelJobs,
 		JobsRunning: uint(len(c.jobsRunning)),
+		Capabilities: c.config.Capabilities,
 	}
 }
 
@@ -231,7 +232,7 @@ func (c *Client) startJobRunner() {
 	}()
 }
 
-func initDrivers(config *Config) map[string]*structs.Driver {
+func initDrivers(config Config) map[string]*structs.Driver {
 	driverMap := make(map[string]*structs.Driver)
 
 	execDriver := drivers.NewExecDriver(nil)
@@ -260,8 +261,7 @@ func Run(args []string) int {
 	driverMap := initDrivers(config)
 	
 	client := &Client{
-		name:		config.Name,
-		capacity:	config.Scheduler.MaxParallelJobs,
+		config:		config,
 		jobsRunningMtx: &sync.Mutex{},
 		jobsRunning:	make(map[string]*structs.Job),
 		drivers:	driverMap,

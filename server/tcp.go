@@ -20,8 +20,23 @@ type TcpDependencies struct {
 type Node struct {
 	conn		*tcp.Conn
 	Name		string
+	Capabilities	[]string
 	Capacity	uint
 	JobsRunning	uint
+}
+
+func NodeFromMessage(c *tcp.Conn, msg tcp.MsgHandshakeInitial) *Node {
+	n := &Node{
+		Name: msg.NodeName,
+		Capacity: msg.Capacity,		// for now
+		Capabilities: msg.Capabilities,
+		JobsRunning: msg.JobsRunning,
+		conn: c,
+	}
+	if n.Capabilities == nil {
+		n.Capabilities = make([]string, 0)
+	}
+	return n
 }
 
 type NodeMsgPair struct {
@@ -66,6 +81,7 @@ func (s *TcpServer) deregisterNode(n *Node) {
 	}
 }
 
+
 func (s *TcpServer) handshakeStart(c *tcp.Conn) (*Node, string, error) {
 	// establish handshake
 	fmt.Println("Wait for handshake message")
@@ -83,12 +99,7 @@ func (s *TcpServer) handshakeStart(c *tcp.Conn) (*Node, string, error) {
 		return nil, "Only agents can join (for now)", nil
 	}
 
-	node := &Node{
-		Name: msg.NodeName,
-		Capacity: msg.Capacity,		// for now
-		JobsRunning: msg.JobsRunning,
-		conn: c,
-	}
+	node := NodeFromMessage(c, msg)
 
 	fmt.Printf("New node: %+v\n", node)
 

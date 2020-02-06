@@ -29,8 +29,9 @@ type MsgBase struct {
 }
 
 type MsgAgentInfo struct {
-	JobsRunning	uint	`json:"jobs_running"`
-	Capacity	uint	`json:"capacity"`
+	JobsRunning	uint		`json:"jobs_running"`
+	Capacity	uint		`json:"capacity"`
+	Capabilities	[]string	`json:"capabilities"`
 }
 
 type MsgHandshakeInitial struct {
