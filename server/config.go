@@ -15,37 +15,41 @@ type AddressConfig struct {
 
 type Config struct {
 	Addresses AddressConfig `json:"addresses"`
+	DataDir	  string	`json:"data_dir"`
 	Name	  string	`json:"name"`
 }
 
-func ReadConfig(path string) (*Config, error) {
+func ReadConfig(path string) (Config, error) {
 	var config Config
 
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return config, err
 	}
 
 	err = json.Unmarshal(data, &config)
 	if err != nil {
-		return nil, err
+		return config, err
 	}
 
 	if config.Addresses.Http == "" {
-		return nil, errors.New("No addresses.http found in config")
+		config.Addresses.Http = "127.0.0.1:8400"
 	}
 	if config.Addresses.Tcp == "" {
-		return nil, errors.New("No addresses.tcp found in config")
+		config.Addresses.Tcp = "127.0.0.1:8401"
+	}
+	if config.DataDir == "" {
+		return config, errors.New("No data_dir specified")
 	}
 	if config.Name == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
-			return nil, errors.New("No name provided and error reading hostname")
+			return config, errors.New("No name provided and error reading hostname")
 		}
 		config.Name = "taylor.server." + hostname
 	}
 
 	fmt.Printf("%+v\n", config)
 
-	return &config, nil
+	return config, nil
 }

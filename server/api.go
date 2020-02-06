@@ -18,11 +18,12 @@ type JobDefinition struct {
 }
 
 type ApiDependencies struct {
-	Store *database.Store
+	Store	  *database.Store
 	TcpServer *TcpServer
+	DiskLog	  *DiskLog
 }
 
-func postJob(deps *ApiDependencies, c *gin.Context) {
+func postJob(deps ApiDependencies, c *gin.Context) {
 	var jobDef JobDefinition
 	if err := c.ShouldBindJSON(&jobDef); err != nil {
 		c.Status(http.StatusBadRequest)
@@ -48,7 +49,7 @@ func postJob(deps *ApiDependencies, c *gin.Context) {
 	c.Status(http.StatusCreated)
 }
 
-func getAllJobs(deps *ApiDependencies, c *gin.Context) {
+func getAllJobs(deps ApiDependencies, c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "0"))
 	if err != nil {
 		c.Status(http.StatusBadRequest)
@@ -69,13 +70,36 @@ func getAllJobs(deps *ApiDependencies, c *gin.Context) {
 	c.JSON(http.StatusOK, jobs)
 }
 
-func getAllNodes(deps *ApiDependencies, c *gin.Context) {
+func getAllNodes(deps ApiDependencies, c *gin.Context) {
 	nodes := deps.TcpServer.Nodes()
 
 	c.JSON(http.StatusOK, nodes)
 }
 
-func getJob(deps *ApiDependencies, c *gin.Context) {
+func getJobLog(deps ApiDependencies, c *gin.Context) {
+	job, err := deps.Store.JobById(c.Param("JobId"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if job == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	// open log
+	logs, _:= deps.DiskLog.GetLogs(job)
+
+	resp := make(map[string]interface{}, 0)
+	resp["jobId"] = job.Id
+	resp["logs"] = logs
+
+	c.JSON(http.StatusOK, resp)
+}
+
+func getJob(deps ApiDependencies, c *gin.Context) {
 	job, err := deps.Store.JobById(c.Param("JobId"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
@@ -91,7 +115,7 @@ func getJob(deps *ApiDependencies, c *gin.Context) {
 	c.JSON(http.StatusOK, job)
 }
 
-func StartApi(config *Config, deps *ApiDependencies) error {
+func StartApi(config Config, deps ApiDependencies) error {
 
 	gin.SetMode(gin.ReleaseMode)
 
@@ -107,6 +131,9 @@ func StartApi(config *Config, deps *ApiDependencies) error {
 		})
 		v1.GET("/jobs/:JobId", func (c *gin.Context) {
 			getJob(deps, c)
+		})
+		v1.GET("/jobs/:JobId/log", func (c *gin.Context) {
+			getJobLog(deps, c)
 		})
 		v1.GET("/nodes", func (c *gin.Context) {
 			getAllNodes(deps, c)

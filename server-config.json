@@ -1,4 +1,5 @@
 {
+  "data_dir": "/tmp/taylor",
   "addresses": {
     "http": "127.0.0.1:8400",
     "tcp": "127.0.0.1:8401"

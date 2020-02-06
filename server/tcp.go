@@ -13,6 +13,7 @@ import (
 
 type TcpDependencies struct {
 	Store	*database.Store
+	DiskLog *DiskLog
 }
 
 type Node struct {
@@ -29,6 +30,7 @@ type NodeMsgPair struct {
 
 type TcpServer struct {
 	store		  *database.Store
+	diskLog		  *DiskLog
 	nodes		  map[string]*Node
 	dependencies	  TcpDependencies
 	cliChan		  chan NodeMsgPair
@@ -40,7 +42,7 @@ func (s *TcpServer) registerNode(n *Node) bool {
 	if in {
 		return false
 	}
-	fmt.Printf("Register %s\n", n.Name)
+	fmt.Printf("Register agent %s\n", n.Name)
 	s.nodes[n.Name] = n
 	return true
 }
@@ -48,13 +50,13 @@ func (s *TcpServer) registerNode(n *Node) bool {
 func (s *TcpServer) deregisterNode(n *Node) {
 	_, in := s.nodes[n.Name]
 	if in {
-		fmt.Printf("Deregister %s\n", n.Name)
+		fmt.Printf("Deregister agent %s\n", n.Name)
 		jobs, err := s.store.JobsFromNodeWithStatus(n.Name, structs.JOB_STATUS_SCHEDULED)
 		if err == nil {
 			// put jobs back on queue
 			for _, job := range jobs {
 				fmt.Printf("Set job %s (%s) as failed\n", job.Id, job.Identifier)
-				s.store.UpdateJobStatus(job.Id, structs.JOB_STATUS_ERROR)
+				s.deregisterScheduledJob(job, structs.JOB_STATUS_ERROR)
 			}
 		}
 		
@@ -109,14 +111,44 @@ func (s *TcpServer) handshakeEnd(node *Node, refuseReason string) error {
 	})
 }
 
+func (s *TcpServer) registerScheduledJob(job *structs.Job, nodeName string) error {
+	fmt.Printf("Register job: %s at agent: %s\n", job.Id, nodeName)
+
+	if err := s.diskLog.Open(job); err != nil {
+		return err 
+	}
+	if err := s.store.UpdateJobStatus(job.Id, structs.JOB_STATUS_SCHEDULED); err != nil {
+		return err
+	}
+	if err := s.store.UpdateJobAgentName(job.Id, nodeName) ; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobStatus) error {
+	fmt.Printf("Deregister job: %s\n", job.Id)
+	var err error
+	if err = s.diskLog.Close(job); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+	}
+	if err = s.store.UpdateJobStatus(job.Id, status); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+	}
+	return err
+}
+
+func (s *TcpServer) handleMsgJobUpdate(response *tcp.MsgJobUpdate) error {
+	if _, err := s.diskLog.WriteString(&response.Job, response.Message + "\n"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *TcpServer) handleMsgJobDone(response *tcp.MsgJobDone) error {
 	fmt.Printf("Job %s (%s) success status: %v\n", response.Job.Id, response.Job.Identifier, response.Success)
 
-	err := s.store.UpdateJobStatus(response.Job.Id, response.Job.Status)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
-	}
-	return nil
+	return s.deregisterScheduledJob(&response.Job, response.Job.Status)
 }
 
 func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {
@@ -126,16 +158,7 @@ func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {
 
 	fmt.Printf("Node %s accepted work\n", response.NodeName);
 
-	err := s.store.UpdateJobStatus(response.Job.Id, structs.JOB_STATUS_SCHEDULED)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
-	}
-	err = s.store.UpdateJobAgentName(response.Job.Id, response.NodeName) 
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Sql Error: %v\n", err)
-	}
-
-	return nil
+	return s.registerScheduledJob(&response.Job, response.NodeName)
 }
 
 func (s *TcpServer) updateNodeFromMessage(msgBase tcp.MsgBase, agentInfo tcp.MsgAgentInfo) error {
@@ -193,6 +216,7 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
+				continue
 			}
 			err = s.handleMsgJobAccepted(&response)
 			if err != nil {
@@ -203,6 +227,7 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
+				continue
 			}
 			err = s.handleMsgJobDone(&response)
 			if err != nil {
@@ -213,8 +238,12 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
+				continue
 			}
-			fmt.Printf("Job update from: %s - %s (%s) (progress: %f) - \"%s\"\n", response.Job.Id, response.Job.Identifier, response.NodeName, response.Progress, response.Message)
+			err = s.handleMsgJobUpdate(&response)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+			}
 		default:
 			fmt.Println("Unknown command received")
 		}
@@ -275,14 +304,6 @@ func (s *TcpServer) Unicast(node *Node, payload interface{}) {
 	s.cliChan <- NodeMsgPair{node, payload}
 }
 
-/*
-func (s *TcpServer) Broadcast(nodes []*Node, message string) {
-	for _, n := range nodes {
-		s.cliChan <- NodeMsgPair{n, message}
-	}
-}
-*/
-
 func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 	ln, err := net.Listen("tcp", config.Addresses.Tcp)
 	if err != nil {
@@ -294,6 +315,7 @@ func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 		store:		   deps.Store,
 		cliChan:	   make(chan NodeMsgPair, 50),
 		config:		   config,
+		diskLog:	   deps.DiskLog,
 	}
 
 	go s.listen(ln)
