@@ -71,16 +71,17 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 	nodeProxyJobMaps := make([]NodeJobMap, 0)
 	
 	for _, job := range jobs {
-		// find all nodes with right capabilities
+		// find all nodes that have some space left
 		freeNodes := freeNodes(proxyNodes)
 		
-		// get all nodes that are capable of handling the job
+		// filter out all nodes that are not capable of handling the job
 		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
 		
-		// sort by capability. the ones with the least take it first
+		// sort by capability. the ones with the least comes first
 		sortCapableNodes(capableNodes)
 	
 		for idx, node := range capableNodes{
+			// this check shouldn't be necessary as we filtered out above all full nodes already. but we just leave it for now until we have unit tests :-)
 			if (node.Capacity - node.JobsRunning) > 0 {
 				nodeProxyJobMaps = append(nodeProxyJobMaps, NodeJobMap{
 					node: node,
