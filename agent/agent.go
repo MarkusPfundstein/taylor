@@ -275,6 +275,7 @@ func Run(args []string, devMode bool) int {
 
 	if devMode == true {
 		config.ClusterAddr = "127.0.0.1:8401"
+		config.Scheduler.MaxParallelJobs = 1
 	}
 
 	driverMap := initDrivers(config)

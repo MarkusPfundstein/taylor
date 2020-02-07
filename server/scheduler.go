@@ -102,6 +102,13 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 	return nodeProxyJobMaps
 }
 
+func sortJobsByPriority(jobs []*structs.Job) {
+	sort.Slice(jobs[:], func (i int, j int) bool {
+		return jobs[i].Priority > jobs[j].Priority
+	})
+}
+
+
 func (s *Scheduler) schedule () {
 	for {
 		time.Sleep(s.sleepMs * time.Millisecond)
@@ -115,6 +122,10 @@ func (s *Scheduler) schedule () {
 		if len(jobs) == 0 {
 			continue
 		}
+
+		fmt.Printf("jobs before: %=v\n", jobs)
+		sortJobsByPriority(jobs)
+		fmt.Printf("jobs after: %=v\n", jobs)
 
 		fmt.Printf("distribute %d over %d nodes\n", len(jobs), len(s.tcpServer.Nodes()))
 

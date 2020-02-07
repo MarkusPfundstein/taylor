@@ -9,16 +9,15 @@ distributed worker queue written in golang
 
 ## To-Do
 
-- add job priorities
+- delete job REST
+- cancel job REST and tcp to agent who executes
 - consul integration
 - docker driver
-- add maximal job lifetime
+- add maximal job lifetime (to forecome infinite loop in job exec)
 - add possibility to distribute job scripts to agents
 - add job.OnError {reschedule, script callback, nothing} (Exec on server)
 - add job.OnSuccess {script callback, nothing} (Exec on server)
 - add job.OnUpdate {script callback, nothing} (Exec on server)
 - add TLS
-- -dev mode
 - cmd line args
 - docs
-- remove deletion of database on startup :D :D

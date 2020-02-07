@@ -182,6 +182,10 @@ func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobS
 
 func (s *TcpServer) handleMsgJobUpdate(response *tcp.MsgJobUpdate) error {
 	s.handleUpdateHandlers(&response.Job, "update", response.Progress, response.Message)
+
+	if err := s.store.UpdateJobProgress(response.Job.Id, response.Progress); err != nil {
+		return err
+	}
 	if _, err := s.diskLog.WriteString(&response.Job, response.Message + "\n"); err != nil {
 		return err
 	}
@@ -191,6 +195,9 @@ func (s *TcpServer) handleMsgJobUpdate(response *tcp.MsgJobUpdate) error {
 func (s *TcpServer) handleMsgJobDone(response *tcp.MsgJobDone) error {
 	fmt.Printf("Job %s (%s) success status: %v\n", response.Job.Id, response.Job.Identifier, response.Success)
 
+	if err := s.store.UpdateJobProgress(response.Job.Id, 1.0); err != nil {
+		return err
+	}
 	return s.deregisterScheduledJob(&response.Job, response.Job.Status)
 }
 

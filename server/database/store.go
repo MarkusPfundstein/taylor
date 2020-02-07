@@ -33,6 +33,8 @@ func (s *Store) init() error {
 		,driver_config STRING
 		,update_handlers STRING
 		,restrict STRING
+		,priority INT
+		,progress FLOAT
 	);
 	`)
 	if err != nil {
@@ -102,7 +104,19 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 	restrict, _ := encodeData(job.Restrict)
 
 	query := fmt.Sprintf(`
-	INSERT INTO jobs (id, identifier, status, ts, agent_name, driver, driver_config, update_handlers, restrict) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s", "%s");
+	INSERT INTO jobs (
+		id,
+		identifier,
+		status,
+		ts,
+		agent_name,
+		driver,
+		driver_config,
+		update_handlers,
+		restrict,
+		priority,
+		progress
+	) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s", "%s", %d, %f)
 	`,
 		job.Id,
 		job.Identifier,
@@ -113,6 +127,8 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 		string(driverConfig),
 		string(updateHandlers),
 		string(restrict),
+		job.Priority,
+		job.Progress,
 	)
 
 	_, err = tx.Exec(query)
@@ -151,6 +167,8 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 			&encodedDriverConfig,
 			&encodedUpdateHandlers,
 			&encodedRestrict,
+			&job.Priority,
+			&job.Progress,
 		)
 		if err != nil {
 			return err
@@ -288,6 +306,26 @@ func (s *Store) UpdateJobStatus(id string, status structs.JobStatus) error {
 	}
 
 	q := fmt.Sprintf("UPDATE jobs SET status = %d WHERE id = \"%s\"", int(status), id)
+
+	_, err = tx.Exec(q)
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Store) UpdateJobProgress(id string, progress float32) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	q := fmt.Sprintf("UPDATE jobs SET progress = %f WHERE id = \"%s\"", progress, id)
 
 	_, err = tx.Exec(q)
 	if err != nil {

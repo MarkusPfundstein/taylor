@@ -37,9 +37,18 @@ type Job struct {
 	DriverConfig	map[string]interface{}	`json:"driver_config"`
 	UpdateHandlers	[]UpdateHandler		`json:"update_handlers"`
 	Restrict	[]string		`json:"restrict"`
+	Priority	uint			`json:"priority"`
+	Progress	float32			`json:"progress"`
 }
 
-func NewJob(id string, driver string, driverConfig map[string]interface{}, updateHandlers []UpdateHandler, restrict []string) *Job {
+func NewJob(
+	id string,
+	driver string,
+	driverConfig map[string]interface{},
+	updateHandlers []UpdateHandler,
+	restrict []string,
+	priority uint,
+) *Job {
 	// to-do: validate updatehandlers
 	return &Job{
 		Id:		uuid.New().String(),
@@ -51,5 +60,7 @@ func NewJob(id string, driver string, driverConfig map[string]interface{}, updat
 		DriverConfig:	driverConfig,
 		UpdateHandlers: updateHandlers,
 		Restrict:	restrict,
+		Progress:	0.0,
+		Priority:	priority,
 	}
 }

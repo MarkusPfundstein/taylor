@@ -60,12 +60,11 @@ func ExecWebhook(config map[string]interface{}, job *structs.Job, eventName stri
 				return
 			}
 			defer resp.Body.Close()
-			body, err := ioutil.ReadAll(resp.Body)
+			_, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "[webhook] %v\n", err)
 				return
 			}
-			fmt.Printf("%s > %s\n", url, string(body))
 		}
 	}()
 	return nil
