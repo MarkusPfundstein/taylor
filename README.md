@@ -9,7 +9,6 @@ distributed worker queue written in golang
 
 ## To-Do
 
-- delete job REST
 - cancel job REST and tcp to agent who executes
 - consul integration
 - docker driver

@@ -19,6 +19,15 @@ const (
 
 	// job is error
 	JOB_STATUS_ERROR
+
+	// job has been cancelled
+	JOB_STATUS_CANCEL
+
+	// job has been interrupted (during execution)
+	JOB_STATUS_INTERRUPT
+
+	// job has been deleted
+	JOB_STATUS_DELETE
 )
 
 type UpdateHandler struct {

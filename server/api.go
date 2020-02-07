@@ -70,7 +70,7 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 		return
 	}
 
-	c.Status(http.StatusCreated)
+	c.JSON(http.StatusCreated, job)
 }
 
 func getAllJobs(deps ApiDependencies, c *gin.Context) {
@@ -139,6 +139,33 @@ func getJob(deps ApiDependencies, c *gin.Context) {
 	c.JSON(http.StatusOK, job)
 }
 
+func deleteJob(deps ApiDependencies, c *gin.Context) {
+	job, err := deps.Store.JobById(c.Param("JobId"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	if job == nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	if job.Status == structs.JOB_STATUS_SCHEDULED || job.Status == structs.JOB_STATUS_DELETE {
+		c.Status(http.StatusConflict)
+		return
+	}
+
+	err = deps.Store.UpdateJobStatus(job.Id, structs.JOB_STATUS_DELETE)
+	if err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+
 func StartApi(config Config, deps ApiDependencies) error {
 
 	gin.SetMode(gin.ReleaseMode)
@@ -155,6 +182,9 @@ func StartApi(config Config, deps ApiDependencies) error {
 		})
 		v1.GET("/jobs/:JobId", func (c *gin.Context) {
 			getJob(deps, c)
+		})
+		v1.DELETE("/jobs/:JobId", func (c *gin.Context) {
+			deleteJob(deps, c)
 		})
 		v1.GET("/jobs/:JobId/log", func (c *gin.Context) {
 			getJobLog(deps, c)

@@ -253,7 +253,7 @@ func (s *Store) JobById(id string) (*structs.Job, error) {
 func (s *Store) AllJobs(limit uint) ([]*structs.Job, error) {
 	var q strings.Builder
 
-	q.WriteString(fmt.Sprintf("SELECT * FROM jobs ORDER BY ts ASC"))
+	q.WriteString(fmt.Sprintf("SELECT * FROM jobs WHERE status != %d ORDER BY ts ASC", int(structs.JOB_STATUS_DELETE)))
 	if limit > 0 {
 		q.WriteString(fmt.Sprintf(" LIMIT %d", limit))
 	}
