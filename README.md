@@ -9,6 +9,7 @@ distributed worker queue written in golang
 
 ## To-Do
 
+- when exec jobs fails due to executable not in PATH, its should be logged to job log
 - cancel job REST and tcp to agent who executes
 - consul integration
 - docker driver
