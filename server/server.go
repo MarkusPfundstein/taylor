@@ -10,7 +10,14 @@ import (
 
 func Run(args []string, devMode bool) int {
 
-	config, err := ReadConfig("./server-config.json")
+	var configPath string
+	if len(args) > 0 {
+		configPath = args[0]
+	} else {
+		configPath = "./server-config.json"
+	}
+
+	config, err := ReadConfig(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Read Config Error: %v\n", err)
 		return 1
