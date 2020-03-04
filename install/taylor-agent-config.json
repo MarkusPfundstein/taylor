@@ -1,0 +1,8 @@
+{
+  "cluster": "127.0.0.1:8401",
+  "capabilities": [],
+  "scheduler": {
+    "max_parallel_jobs": 3
+  }
+}
+
