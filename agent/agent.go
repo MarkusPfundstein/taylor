@@ -5,6 +5,7 @@ import (
 	"os"
 	"fmt"
 	"net"
+	"time"
 	"os/signal"
 	"syscall"
 	"sync"
@@ -259,23 +260,23 @@ func initDrivers(config Config) map[string]*structs.Driver {
 
 func Run(args []string, devMode bool) int {
 
-	fmt.Println("Args", args)
-	var configPath string
-	if len(args) > 0 {
-		configPath = args[0]
-	} else {
-		configPath = "./client-config.json"
-	}
-
-	config, err := ReadConfig(configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Config Error: %v\n", err)
-		return 1
-	}
-
+	var config Config
 	if devMode == true {
-		config.ClusterAddr = "127.0.0.1:8401"
-		config.Scheduler.MaxParallelJobs = 1
+		config = DevModeConfig()
+	} else {
+		var configPath string
+		if len(args) > 0 {
+			configPath = args[0]
+		} else {
+			configPath = "./client-config.json"
+		}
+
+		configTmp, err := ReadConfig(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Config Error: %v\n", err)
+			return 1
+		}
+		config = configTmp
 	}
 
 	driverMap := initDrivers(config)
@@ -301,10 +302,13 @@ func Run(args []string, devMode bool) int {
 
 	client.startJobRunner()
 
-	err = client.connect(config.ClusterAddr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Agent err: %+v\n", err)
-		return 1
+	for {
+		err := client.connect(config.ClusterAddr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Agent Connect err: %+v\n", err)
+		}
+		time.Sleep(5 * time.Second)
+		fmt.Println("Try again to connect to cluster...")
 	}
 	return 0
 }

@@ -10,22 +10,24 @@ import (
 
 func Run(args []string, devMode bool) int {
 
-	var configPath string
-	if len(args) > 0 {
-		configPath = args[0]
-	} else {
-		configPath = "./server-config.json"
-	}
-
-	config, err := ReadConfig(configPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Read Config Error: %v\n", err)
-		return 1
-	}
-
+	var config Config
 	if devMode == true {
-		config.DataDir = ".taylor-dev-tmp/"
+		config = DevModeConfig()
 		os.RemoveAll(config.DataDir)
+	} else {
+		var configPath string
+		if len(args) > 0 {
+			configPath = args[0]
+		} else {
+			configPath = "./server-config.json"
+		}
+
+		configTmp, err := ReadConfig(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Read Config Error: %v\n", err)
+			return 1
+		}
+		config = configTmp
 	}
 
 	if _, err := os.Stat(config.DataDir); os.IsNotExist(err) {

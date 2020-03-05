@@ -19,6 +19,27 @@ type Config struct {
 	Name	  string	`json:"name"`
 }
 
+func defaultName() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", errors.New("No name provided and error reading hostname")
+	}
+	return "taylor.server." + hostname, nil
+}
+
+func DevModeConfig() Config {
+	name, _ := defaultName()
+	config := Config{
+		Addresses: AddressConfig{
+			Http: "127.0.0.1:8400",
+			Tcp:  "127.0.0.1:8401",
+		},
+		DataDir: ".taylor-dev-temp/",
+		Name: name,
+	}
+	return config
+}
+
 func ReadConfig(path string) (Config, error) {
 	var config Config
 
@@ -42,11 +63,10 @@ func ReadConfig(path string) (Config, error) {
 		return config, errors.New("No data_dir specified")
 	}
 	if config.Name == "" {
-		hostname, err := os.Hostname()
+		config.Name, err = defaultName()
 		if err != nil {
-			return config, errors.New("No name provided and error reading hostname")
+			return config, err
 		}
-		config.Name = "taylor.server." + hostname
 	}
 
 	fmt.Printf("%+v\n", config)

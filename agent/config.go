@@ -19,6 +19,27 @@ type Config struct {
 	Scheduler	SchedulerConfig	`json:"scheduler"`
 }
 
+func defaultName() (string, error) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", errors.New("No name provided and error reading hostname")
+	}
+	return "taylor.agent." + hostname, nil
+}
+
+func DevModeConfig() Config {
+	name, _ := defaultName()
+	config := Config{
+		ClusterAddr: "127.0.0.1:8401",
+		Name: name,
+		Capabilities: []string{},
+		Scheduler: SchedulerConfig{
+			MaxParallelJobs: 1,
+		},
+	}
+	return config
+}
+
 func ReadConfig(path string) (Config, error) {
 	var config Config
 
@@ -37,11 +58,10 @@ func ReadConfig(path string) (Config, error) {
 	}
 
 	if config.Name == "" {
-		hostname, err := os.Hostname()
+		config.Name, err = defaultName()
 		if err != nil {
-			return config, errors.New("No name provided and error reading hostname")
+			return config, err
 		}
-		config.Name = "taylor.agent." + hostname
 	}
 
 	if config.Scheduler.MaxParallelJobs == 0 {
