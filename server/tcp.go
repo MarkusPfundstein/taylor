@@ -350,6 +350,9 @@ func (s *TcpServer) listen(ln net.Listener) {
 	}
 }
 
+func (s *TcpServer) CancelJob(job *structs.Job) {
+}
+
 func (s *TcpServer) Unicast(node *Node, payload interface{}) {
 	s.cliChan <- NodeMsgPair{node, payload}
 }

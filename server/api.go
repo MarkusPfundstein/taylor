@@ -5,11 +5,22 @@ import (
 	"fmt"
 	"strconv"
 	"os"
+	"errors"
 
 	"taylor/server/database"
 	"taylor/lib/structs"
 	"github.com/gin-gonic/gin"
 )
+
+type ErrorResponse struct {
+	Error		string	`json:"error"`
+}
+
+type PatchDefinition struct {
+	Op		string	`json:"op"`
+	Path		string  `json:"path"`
+	Value		string  `json:"value"`
+}
 
 type JobDefinition struct {
 	Identifier	string			`json:"identifier"`
@@ -25,16 +36,21 @@ type ApiDependencies struct {
 	TcpServer *TcpServer
 	DiskLog	  *DiskLog
 }
+func sendError(c *gin.Context, code int, err error) {
+	c.JSON(code, ErrorResponse{
+		Error: err.Error(),
+	})
+}
 
 func postJob(deps ApiDependencies, c *gin.Context) {
 	var jobDef JobDefinition
 	if err := c.ShouldBindJSON(&jobDef); err != nil {
-		c.Status(http.StatusBadRequest)
+		sendError(c, http.StatusBadRequest, errors.New("Couldn't parse Job Definition"))
 		return
 	}
 
 	if jobDef.Identifier == "" || jobDef.Driver == "" || len(jobDef.DriverConfig) == 0 {
-		c.Status(http.StatusBadRequest)
+		sendError(c, http.StatusBadRequest, errors.New("Invalid Job Definition. Identifier, Driver and DirverConfig must not be empty"))
 		return
 	}
 
@@ -66,7 +82,7 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 	_, err := deps.Store.InsertJob(job)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -76,18 +92,18 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 func getAllJobs(deps ApiDependencies, c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "0"))
 	if err != nil {
+		sendError(c, http.StatusBadRequest, errors.New("limit must be integer"))
 		c.Status(http.StatusBadRequest)
 		return
 	}
 	if limit < 0 {
-		c.Status(http.StatusBadRequest)
+		sendError(c, http.StatusBadRequest, errors.New("limit must be > 0"))
 		return
 	}
 
 	jobs, err := deps.Store.AllJobs(uint(limit))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -103,13 +119,12 @@ func getAllNodes(deps ApiDependencies, c *gin.Context) {
 func getJobLog(deps ApiDependencies, c *gin.Context) {
 	job, err := deps.Store.JobById(c.Param("JobId"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
 	if job == nil {
-		c.Status(http.StatusNotFound)
+		sendError(c, http.StatusNotFound, errors.New("Couldn't find job"))
 		return
 	}
 
@@ -126,40 +141,106 @@ func getJobLog(deps ApiDependencies, c *gin.Context) {
 func getJob(deps ApiDependencies, c *gin.Context) {
 	job, err := deps.Store.JobById(c.Param("JobId"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
 	if job == nil {
-		c.Status(http.StatusNotFound)
+		sendError(c, http.StatusNotFound, errors.New("Couldn't find job"))
 		return
 	}
 
 	c.JSON(http.StatusOK, job)
 }
 
-func deleteJob(deps ApiDependencies, c *gin.Context) {
+func canCancelJob(job *structs.Job) bool {
+	return job.Status == structs.JOB_STATUS_SCHEDULED || job.Status == structs.JOB_STATUS_WAITING
+}
+
+func updateJobStatus(tcpServer *TcpServer, job *structs.Job, value string) (int, error) {
+	switch (value) {
+	case "4", "cancel":
+		if canCancelJob(job) {
+			tcpServer.CancelJob(job);
+			return http.StatusAccepted, nil
+		} else {
+			return http.StatusConflict, errors.New("Job can't be cancelled. It's not scheduled at a node or waiting")
+		}
+	default:
+		return http.StatusBadRequest, errors.New("invalid value (4 or cancel)")
+	}
+}
+
+func updateJob(tcpServer *TcpServer, job *structs.Job, path string, value string) (int, error) {
+	switch (path) {
+	case "/status", "status":
+		return updateJobStatus(tcpServer, job, value)
+	default:
+		return http.StatusBadRequest, errors.New("invalid path")
+	}
+}
+
+func patchJob(deps ApiDependencies, c *gin.Context) {
+	var patchDef PatchDefinition
+	if err := c.ShouldBindJSON(&patchDef); err != nil {
+		sendError(c, http.StatusBadRequest, errors.New("Couldn't parse Patch Definition"))
+		return
+	}
+
+	if patchDef.Op == "" || patchDef.Path == "" || patchDef.Value == "" {
+		sendError(c, http.StatusBadRequest, errors.New("Invalid Patch Definition. Op, Path and Value field required"))
+		return
+	}
+
 	job, err := deps.Store.JobById(c.Param("JobId"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Internal Error: %v\n", err)
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
 	if job == nil {
-		c.Status(http.StatusNotFound)
+		sendError(c, http.StatusNotFound, errors.New("Couldn't find job"))
+		return
+	}
+
+	// handle Operations
+	switch patchDef.Op {
+	case "update":
+		code, err := updateJob(deps.TcpServer, job, patchDef.Path, patchDef.Value)
+		if err != nil {
+			fmt.Println("err: %v\n", err)
+			sendError(c, code, err)
+			return
+		}
+
+		c.Status(code)
+		return
+	default:
+		sendError(c, http.StatusNotImplemented, errors.New("op not implemented yet"))
+		return
+	}
+}
+
+func deleteJob(deps ApiDependencies, c *gin.Context) {
+	job, err := deps.Store.JobById(c.Param("JobId"))
+	if err != nil {
+		sendError(c, http.StatusInternalServerError, err)
+		return
+	}
+
+	if job == nil {
+		sendError(c, http.StatusNotFound, errors.New("Couldn't find job"))
 		return
 	}
 
 	if job.Status == structs.JOB_STATUS_SCHEDULED || job.Status == structs.JOB_STATUS_DELETE {
-		c.Status(http.StatusConflict)
+		sendError(c, http.StatusConflict, errors.New("Can't delete job that is scheduled or deleted"))
 		return
 	}
 
 	err = deps.Store.UpdateJobStatus(job.Id, structs.JOB_STATUS_DELETE)
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
+		sendError(c, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -182,6 +263,9 @@ func StartApi(config Config, deps ApiDependencies) error {
 		})
 		v1.GET("/jobs/:JobId", func (c *gin.Context) {
 			getJob(deps, c)
+		})
+		v1.PATCH("/jobs/:JobId", func (c *gin.Context) {
+			patchJob(deps, c)
 		})
 		v1.DELETE("/jobs/:JobId", func (c *gin.Context) {
 			deleteJob(deps, c)

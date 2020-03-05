@@ -58,7 +58,7 @@ func (c *Client) handshake() error {
 		return errors.New(fmt.Sprintf("Server declined join request: %s\n", msg.RefuseReason))
 	}
 	
-	fmt.Println("Handhsake done. Connected to cluster", c.conn.Raddr())
+	fmt.Println("Handshake done. Connected to cluster", c.conn.Raddr())
 	return nil
 }
 
