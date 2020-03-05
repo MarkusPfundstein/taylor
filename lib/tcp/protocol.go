@@ -22,7 +22,6 @@ const (
 	MSG_JOB_DONE
 	MSG_JOB_UPDATE
 	MSG_JOB_CANCEL_REQUEST
-	MSG_JOB_CANCEL_RESPONSE
 )
 
 type MsgBase struct {
@@ -66,6 +65,7 @@ type MsgJobDone struct {
 	MsgAgentInfo
 	Success		bool		`json:"success"`
 	Job		structs.Job	`json:"job"`
+	ErrorMessage	string		`json:"error_message"`
 }
 
 type MsgJobUpdate struct {
@@ -79,13 +79,6 @@ type MsgJobUpdate struct {
 type MsgJobCancelRequest struct {
 	MsgBase
 	Job		structs.Job	`json:"job"`
-}
-
-type MsgJobCancelResponse struct {
-	MsgBase
-	MsgAgentInfo
-	Job		structs.Job	`json:"job"`
-	Cancelled	bool		`json:"cancelled"`
 }
 
 func Encode(message interface{}) (string, error) {
@@ -134,10 +127,6 @@ func Decode(message string) (interface{}, MsgCmd, error) {
 		return r, r.Command, err
 	case MSG_JOB_CANCEL_REQUEST:
 		var r MsgJobCancelRequest
-		err = json.Unmarshal(hsJson, &r)
-		return r, r.Command, err
-	case MSG_JOB_CANCEL_RESPONSE:
-		var r MsgJobCancelResponse
 		err = json.Unmarshal(hsJson, &r)
 		return r, r.Command, err
 	default:

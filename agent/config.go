@@ -34,7 +34,7 @@ func DevModeConfig() Config {
 		Name: name,
 		Capabilities: []string{},
 		Scheduler: SchedulerConfig{
-			MaxParallelJobs: 1,
+			MaxParallelJobs: 3,
 		},
 	}
 	return config

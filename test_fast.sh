@@ -10,7 +10,7 @@ handle_sigint()
 
 echo "start"
 n=0
-while [ "$n" -lt 60 ]; do
+while [ "$n" -lt 5 ]; do
   echo $n
   n=$(( n + 1 ))
   sleep 1

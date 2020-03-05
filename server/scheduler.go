@@ -74,12 +74,12 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 		// find all nodes that have some space left
 		freeNodes := freeNodes(proxyNodes)
 
-		fmt.Printf("freeNodes: %+v", freeNodes)
+		//fmt.Printf("freeNodes: %+v", freeNodes)
 		
 		// filter out all nodes that are not capable of handling the job
 		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
 		
-		fmt.Printf("capableNodes: %+v", capableNodes)
+		//fmt.Printf("capableNodes: %+v", capableNodes)
 		// sort by capability. the ones with the least comes first
 		sortCapableNodes(capableNodes)
 	
@@ -126,20 +126,20 @@ func (s *Scheduler) schedule () {
 			continue
 		}
 
-		fmt.Printf("jobs before: %=v\n", jobs)
+		//fmt.Printf("jobs before: %=v\n", jobs)
 		sortJobsByPriority(jobs)
-		fmt.Printf("jobs after: %=v\n", jobs)
+		//fmt.Printf("jobs after: %=v\n", jobs)
 
-		fmt.Printf("distribute %d over %d nodes\n", len(jobs), len(s.tcpServer.Nodes()))
+		//fmt.Printf("distribute %d over %d nodes\n", len(jobs), len(s.tcpServer.Nodes()))
 
 		distributed := distribute(s.tcpServer.Nodes(), jobs)
 
-		fmt.Printf("distributed: %v\n", distributed)
+		//fmt.Printf("distributed: %v\n", distributed)
 
 		// try to schedule all jobs on corresponding nodes
 		var wg sync.WaitGroup
 		for _, v := range distributed {
-			fmt.Printf("%s [%v]-> %s [%v]\n", v.job.Identifier, v.job.Restrict, v.node.Name, v.node.Capabilities)
+			fmt.Printf("Schedule job %s [%v] to node %s [%v]\n", v.job.Identifier, v.job.Restrict, v.node.Name, v.node.Capabilities)
 
 			wg.Add(1)
 			go func (njm NodeJobMap) {

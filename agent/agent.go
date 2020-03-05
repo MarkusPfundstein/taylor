@@ -155,6 +155,13 @@ func (c *Client) connect(clusterAddr string) error {
 			fmt.Println("Received request to cancel job")
 			req, _ := message.(tcp.MsgJobCancelRequest)
 			fmt.Println(req.Job)
+
+			err := c.cancelJob(&req.Job)
+			if err != nil {
+				fmt.Printf("Error %v\n", err)
+			} else {
+				fmt.Println("Job cancelled")
+			}
 		default:
 			fmt.Println("Unknown command received")
 		}
@@ -179,8 +186,7 @@ func (c *Client) onJobUpdate(job *structs.Job, progress float32, message string)
 	}
 }
 
-func (c *Client) execJob(job *structs.Job) (err error) {
-	
+func (c *Client) cancelJob(job *structs.Job) (err error) {
 	driver, in := c.drivers[job.Driver]
 	if in == false {
 		return errors.New(fmt.Sprintf("driver %s not registered", job.Driver))
@@ -188,12 +194,30 @@ func (c *Client) execJob(job *structs.Job) (err error) {
 
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
-			err = errors.New(fmt.Sprintf("Exception while running job: %+v", panicErr))
+			err = errors.New(fmt.Sprintf("Exception while cancelling job: %+v", panicErr))
 		}
 	}()
 
-	err = driver.Run(job, driver, c.onJobUpdate, nil)
+	err = driver.Cancel(job, driver)
 	return err
+}
+
+func (c *Client) execJob(job *structs.Job) (interrupted bool, err error) {
+	
+	driver, in := c.drivers[job.Driver]
+	if in == false {
+		return false, errors.New(fmt.Sprintf("driver %s not registered", job.Driver))
+	}
+
+	defer func() {
+		if panicErr := recover(); panicErr != nil {
+			err = errors.New(fmt.Sprintf("Exception while running job: %+v", panicErr))
+			interrupted = false
+		}
+	}()
+
+	interrupted, err = driver.Run(job, driver, c.onJobUpdate)
+	return interrupted, err
 }
 
 func (c *Client) GetMsgBase(cmd tcp.MsgCmd) tcp.MsgBase {
@@ -212,7 +236,7 @@ func (c *Client) GetMsgAgentInfo() tcp.MsgAgentInfo {
 	}
 }
 
-func (c *Client) handleJobDone(job *structs.Job, success bool) {
+func (c *Client) handleJobDone(job *structs.Job, interrupted bool, success bool, jobErrorMessage string) {
 	c.jobsRunningMtx.Lock()
 	defer c.jobsRunningMtx.Unlock()
 
@@ -221,7 +245,11 @@ func (c *Client) handleJobDone(job *structs.Job, success bool) {
 	if success == true {
 		job.Status = structs.JOB_STATUS_SUCCESS
 	} else {
-		job.Status = structs.JOB_STATUS_ERROR
+		if interrupted == true {
+			job.Status = structs.JOB_STATUS_CANCEL
+		} else {
+			job.Status = structs.JOB_STATUS_ERROR
+		}
 	}
 
 	c.msgOutCh <- tcp.MsgJobDone{
@@ -229,24 +257,25 @@ func (c *Client) handleJobDone(job *structs.Job, success bool) {
 		MsgAgentInfo: c.GetMsgAgentInfo(),
 		Success: success,
 		Job: *job,
+		ErrorMessage: jobErrorMessage,
 	}
 }
 
 func (c *Client) startJobRunner() {
 	go func() {
 		for {
-			fmt.Println("Waiting for job")
+			fmt.Println("Waiting for job data...")
 			job := <- c.newJobCh
 			go func(job *structs.Job) {
-				fmt.Println("Got a job to do...")
-				err := c.execJob(job)
+				fmt.Println("Received job data...")
+				interrupted, err := c.execJob(job)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error executing job %s (%s)- %v\n", job.Id, job.Identifier, err)
-					c.handleJobDone(job, false)
+					c.handleJobDone(job, interrupted, false, err.Error())
 					return
 				}
 
-				c.handleJobDone(job, true)
+				c.handleJobDone(job, false, true, "")
 			}(job)
 		}
 	}()
@@ -255,7 +284,7 @@ func (c *Client) startJobRunner() {
 func initDrivers(config Config) map[string]*structs.Driver {
 	driverMap := make(map[string]*structs.Driver)
 
-	execDriver := drivers.NewExecDriver(nil)
+	execDriver := drivers.NewExecDriver()
 	driverMap[execDriver.Name] = execDriver
 
 	return driverMap
@@ -314,6 +343,5 @@ func Run(args []string, devMode bool) int {
 		time.Sleep(5 * time.Second)
 		fmt.Println("Try again to connect to cluster...")
 	}
-	return 0
 }
 

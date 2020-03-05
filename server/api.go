@@ -36,6 +36,7 @@ type ApiDependencies struct {
 	TcpServer *TcpServer
 	DiskLog	  *DiskLog
 }
+
 func sendError(c *gin.Context, code int, err error) {
 	c.JSON(code, ErrorResponse{
 		Error: err.Error(),

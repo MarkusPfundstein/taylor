@@ -72,7 +72,7 @@ func (s *TcpServer) deregisterNode(n *Node) {
 			// put jobs back on queue
 			for _, job := range jobs {
 				fmt.Printf("Set job %s (%s) as failed\n", job.Id, job.Identifier)
-				s.deregisterScheduledJob(job, structs.JOB_STATUS_ERROR)
+				s.deregisterScheduledJob(job, structs.JOB_STATUS_ERROR, "Node died")
 			}
 		}
 		
@@ -165,12 +165,25 @@ func (s *TcpServer) registerScheduledJob(job *structs.Job, nodeName string) erro
 	return nil
 }
 
-func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobStatus) error {
+func (s *TcpServer) deregisterScheduledJob(job *structs.Job, status structs.JobStatus, jobErr string) error {
 	fmt.Printf("Deregister job: %s\n", job.Id)
 
-	s.handleUpdateHandlers(job, "done", 1.0, "")
+	switch (status) {
+	case structs.JOB_STATUS_CANCEL:
+		s.handleUpdateHandlers(job, "cancel", 1.0, jobErr)
+	case structs.JOB_STATUS_ERROR:
+		s.handleUpdateHandlers(job, "error", 1.0, jobErr)
+	case structs.JOB_STATUS_SUCCESS:
+		s.handleUpdateHandlers(job, "done", 1.0, "")
+	}
 
 	var err error
+	if jobErr != "" {
+		_, err := s.diskLog.WriteString(job, "ERROR >> " + jobErr + "\n")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+		}
+	}
 	if err = s.diskLog.Close(job); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 	}
@@ -193,12 +206,12 @@ func (s *TcpServer) handleMsgJobUpdate(response *tcp.MsgJobUpdate) error {
 }
 
 func (s *TcpServer) handleMsgJobDone(response *tcp.MsgJobDone) error {
-	fmt.Printf("Job %s (%s) success status: %v\n", response.Job.Id, response.Job.Identifier, response.Success)
+	fmt.Printf("Job %s (%s) success status: %v - '%s'\n", response.Job.Id, response.Job.Identifier, response.Success, response.ErrorMessage)
 
 	if err := s.store.UpdateJobProgress(response.Job.Id, 1.0); err != nil {
 		return err
 	}
-	return s.deregisterScheduledJob(&response.Job, response.Job.Status)
+	return s.deregisterScheduledJob(&response.Job, response.Job.Status, response.ErrorMessage)
 }
 
 func (s *TcpServer) handleMsgJobAccepted(response *tcp.MsgJobAccepted) error {

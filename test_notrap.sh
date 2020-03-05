@@ -1,13 +1,5 @@
 #!/bin/sh
 
-trap 'handle_sigint' 2
-
-handle_sigint()
-{
-  echo "Received SIGINT" >&2
-  exit 1
-}
-
 echo "start"
 n=0
 while [ "$n" -lt 60 ]; do
