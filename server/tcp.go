@@ -350,7 +350,39 @@ func (s *TcpServer) listen(ln net.Listener) {
 	}
 }
 
-func (s *TcpServer) CancelJob(job *structs.Job) {
+func (s *TcpServer) CancelJob(job *structs.Job) error {
+	if job.CanCancel() == false {
+		return errors.New("Error. Tried to cancel job that can't be cancelled")
+	}
+
+	// when job is scheduled, we need to search for the node that is responsible for the job. otherwise we just can cancel it
+	switch (job.Status) {
+	case structs.JOB_STATUS_SCHEDULED:
+		fmt.Println("Try to cancel scheduled job")
+		node, in := s.nodes[job.AgentName]
+		if in == false {
+			return errors.New("Couldn't find registered agent for job")
+		}
+		fmt.Println("Found agent... tell to delete")
+		s.sendCancelRequest(node, job)
+		return nil
+	case structs.JOB_STATUS_WAITING:
+		return s.store.UpdateJobStatus(job.Id, structs.JOB_STATUS_CANCEL)
+	default:
+		return errors.New("Error. Tried to cancel job that hasn't status SCHEDULED or WAITING")
+	}
+}
+
+func (s *TcpServer) sendCancelRequest(node *Node, job *structs.Job) {
+	payload := &tcp.MsgJobCancelRequest{
+		MsgBase: tcp.MsgBase{
+			Command: tcp.MSG_JOB_CANCEL_REQUEST,
+			NodeName: s.config.Name,
+		},
+		Job: *job,
+	}
+
+	s.Unicast(node, payload)
 }
 
 func (s *TcpServer) Unicast(node *Node, payload interface{}) {

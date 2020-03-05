@@ -142,7 +142,7 @@ func (c *Client) connect(clusterAddr string) error {
 		
 		switch (cmd) {
 		case tcp.MSG_NEW_JOB_OFFER:
-			fmt.Println("Request for work");
+			fmt.Println("Received request for work");
 			jobOffer, _ := message.(tcp.MsgNewJobOffer)
 			fmt.Println(jobOffer.Job)
 			if can, rejectReason := c.canAcceptJob(&jobOffer.Job); can == false {
@@ -151,6 +151,10 @@ func (c *Client) connect(clusterAddr string) error {
 				c.acceptJobOffer(&jobOffer.Job)
 				c.newJobCh <- &jobOffer.Job
 			}
+		case tcp.MSG_JOB_CANCEL_REQUEST:
+			fmt.Println("Received request to cancel job")
+			req, _ := message.(tcp.MsgJobCancelRequest)
+			fmt.Println(req.Job)
 		default:
 			fmt.Println("Unknown command received")
 		}

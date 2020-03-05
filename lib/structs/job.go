@@ -50,6 +50,14 @@ type Job struct {
 	Progress	float32			`json:"progress"`
 }
 
+func (job *Job) CanCancel() bool {
+	return job.Status == JOB_STATUS_SCHEDULED || job.Status == JOB_STATUS_WAITING
+}
+
+func (job *Job) CanDelete() bool {
+	return job.Status != JOB_STATUS_SCHEDULED && job.Status != JOB_STATUS_DELETE
+}
+
 func NewJob(
 	id string,
 	driver string,

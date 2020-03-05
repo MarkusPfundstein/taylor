@@ -153,15 +153,14 @@ func getJob(deps ApiDependencies, c *gin.Context) {
 	c.JSON(http.StatusOK, job)
 }
 
-func canCancelJob(job *structs.Job) bool {
-	return job.Status == structs.JOB_STATUS_SCHEDULED || job.Status == structs.JOB_STATUS_WAITING
-}
-
 func updateJobStatus(tcpServer *TcpServer, job *structs.Job, value string) (int, error) {
 	switch (value) {
 	case "4", "cancel":
-		if canCancelJob(job) {
-			tcpServer.CancelJob(job);
+		if job.CanCancel() {
+			err := tcpServer.CancelJob(job);
+			if err != nil {
+				return http.StatusConflict, err
+			}
 			return http.StatusAccepted, nil
 		} else {
 			return http.StatusConflict, errors.New("Job can't be cancelled. It's not scheduled at a node or waiting")
@@ -233,7 +232,7 @@ func deleteJob(deps ApiDependencies, c *gin.Context) {
 		return
 	}
 
-	if job.Status == structs.JOB_STATUS_SCHEDULED || job.Status == structs.JOB_STATUS_DELETE {
+	if job.CanDelete() == false {
 		sendError(c, http.StatusConflict, errors.New("Can't delete job that is scheduled or deleted"))
 		return
 	}
