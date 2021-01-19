@@ -22,6 +22,9 @@ const (
 	MSG_JOB_DONE
 	MSG_JOB_UPDATE
 	MSG_JOB_CANCEL_REQUEST
+
+	MSG_AGENT_INFO_REQUEST
+	MSG_AGENT_INFO_RESPONSE
 )
 
 type MsgBase struct {
@@ -30,21 +33,31 @@ type MsgBase struct {
 }
 
 type MsgAgentInfo struct {
-	JobsRunning	uint		`json:"jobs_running"`
-	Capacity	uint		`json:"capacity"`
-	Capabilities	[]string	`json:"capabilities"`
+	JobsRunning	uint		  `json:"jobs_running"`
+	Capacity	uint		  `json:"capacity"`
+	Capabilities	[]string	  `json:"capabilities"`
+	GpuInfo		[]structs.GpuInfo `json:"gpu_info"`
 }
 
 type MsgHandshakeInitial struct {
 	MsgBase
 	MsgAgentInfo
-	NodeType	string	`json:"node_type"`
+	NodeType	string		  `json:"node_type"`
 }
 
 type MsgHandshakeResponse struct {
 	MsgBase
 	Accepted	bool	`json:"accepted"`
 	RefuseReason	string	`json:"refuse_reason"`
+}
+
+type MsgAgentInfoRequest struct {
+	MsgBase
+}
+
+type MsgAgentInfoResponse struct {
+	MsgBase
+	MsgAgentInfo
 }
 
 type MsgNewJobOffer struct {
@@ -127,6 +140,14 @@ func Decode(message string) (interface{}, MsgCmd, error) {
 		return r, r.Command, err
 	case MSG_JOB_CANCEL_REQUEST:
 		var r MsgJobCancelRequest
+		err = json.Unmarshal(hsJson, &r)
+		return r, r.Command, err
+	case MSG_AGENT_INFO_REQUEST:
+		var r MsgAgentInfoRequest
+		err = json.Unmarshal(hsJson, &r)
+		return r, r.Command, err
+	case MSG_AGENT_INFO_RESPONSE:
+		var r MsgAgentInfoResponse
 		err = json.Unmarshal(hsJson, &r)
 		return r, r.Command, err
 	default:

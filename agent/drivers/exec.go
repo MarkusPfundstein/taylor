@@ -91,7 +91,7 @@ func cancel(job *structs.Job, driver *structs.Driver) error {
 
 func run(job *structs.Job, driver *structs.Driver, onJobUpdate func (job *structs.Job, progress float32, message string)) (bool, error) {
 	context, _ := driver.Ctx.(*DriverContext)
-	
+
 	fmt.Printf("Exec driver %s\n", driver.Name)
 
 	fmt.Printf("%+v\n", *job)

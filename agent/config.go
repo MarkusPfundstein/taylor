@@ -1,4 +1,4 @@
-package agent 
+package agent
 
 import (
 	"os"
@@ -6,10 +6,16 @@ import (
 	"encoding/json"
 	"io/ioutil"
 	"errors"
+	"time"
 )
 
 type SchedulerConfig struct {
 	MaxParallelJobs uint		`json:"max_parallel_jobs"`
+}
+
+type NvidiaConfig struct {
+	NvidiaSmiPath string		`json:"nvidia_smi"`
+	PollTimeMs    time.Duration	`json:"poll_ms"`
 }
 
 type Config struct {
@@ -17,6 +23,7 @@ type Config struct {
 	Name		string		`json:"name"`
 	Capabilities	[]string	`json:"capabilities"`
 	Scheduler	SchedulerConfig	`json:"scheduler"`
+	NvidiaCfg	NvidiaConfig	`json:"nvidia"`
 }
 
 func defaultName() (string, error) {
@@ -34,7 +41,11 @@ func DevModeConfig() Config {
 		Name: name,
 		Capabilities: []string{},
 		Scheduler: SchedulerConfig{
-			MaxParallelJobs: 3,
+			MaxParallelJobs: 25,
+		},
+		NvidiaCfg: NvidiaConfig {
+			NvidiaSmiPath: "nvidia-smi.exe",
+			PollTimeMs: 1000,
 		},
 	}
 	return config

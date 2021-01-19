@@ -23,6 +23,7 @@ type Client struct {
 	conn		*tcp.Conn
 	jobsRunningMtx  *sync.Mutex
 	jobsRunning	map[string]*structs.Job
+	gpuInfo		[]structs.GpuInfo
 	drivers		map[string]*structs.Driver
 	newJobCh	chan *structs.Job
 	msgOutCh	chan interface{}
@@ -30,6 +31,10 @@ type Client struct {
 
 func (c *Client) HasCapacity() bool {
 	return (c.config.Scheduler.MaxParallelJobs - uint(len(c.jobsRunning))) > 0
+}
+
+func (c *Client) updateGpuInfo(gpuInfo []structs.GpuInfo) {
+	c.gpuInfo = gpuInfo
 }
 
 func (c *Client) handshake() error {
@@ -48,7 +53,7 @@ func (c *Client) handshake() error {
 	}
 
 	fmt.Println(response)
-	
+
 	msg, ok := response.(tcp.MsgHandshakeResponse)
 	if ok == false {
 		return errors.New("Error casting response")
@@ -57,7 +62,7 @@ func (c *Client) handshake() error {
 	if msg.Accepted == false {
 		return errors.New(fmt.Sprintf("Server declined join request: %s\n", msg.RefuseReason))
 	}
-	
+
 	fmt.Println("Handshake done. Connected to cluster", c.conn.Raddr())
 	return nil
 }
@@ -124,7 +129,7 @@ func (c *Client) connect(clusterAddr string) error {
 	// msgOutCh
 	go func() {
 		for {
-			pl := <- c.msgOutCh
+			pl := <-c.msgOutCh
 			err := c.conn.WriteMessage(pl)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing %v\n", err)
@@ -139,8 +144,13 @@ func (c *Client) connect(clusterAddr string) error {
 			fmt.Fprintf(os.Stderr, "Disconnected: %v\n", err)
 			break
 		}
-		
+
 		switch (cmd) {
+		case tcp.MSG_AGENT_INFO_REQUEST:
+			c.msgOutCh <- tcp.MsgAgentInfoResponse{
+				MsgBase: c.GetMsgBase(tcp.MSG_AGENT_INFO_RESPONSE),
+				MsgAgentInfo: c.GetMsgAgentInfo(),
+			}
 		case tcp.MSG_NEW_JOB_OFFER:
 			fmt.Println("Received request for work");
 			jobOffer, _ := message.(tcp.MsgNewJobOffer)
@@ -203,7 +213,7 @@ func (c *Client) cancelJob(job *structs.Job) (err error) {
 }
 
 func (c *Client) execJob(job *structs.Job) (interrupted bool, err error) {
-	
+
 	driver, in := c.drivers[job.Driver]
 	if in == false {
 		return false, errors.New(fmt.Sprintf("driver %s not registered", job.Driver))
@@ -233,6 +243,7 @@ func (c *Client) GetMsgAgentInfo() tcp.MsgAgentInfo {
 		Capacity: c.config.Scheduler.MaxParallelJobs,
 		JobsRunning: uint(len(c.jobsRunning)),
 		Capabilities: c.config.Capabilities,
+		GpuInfo: c.gpuInfo,
 	}
 }
 
@@ -265,7 +276,7 @@ func (c *Client) startJobRunner() {
 	go func() {
 		for {
 			fmt.Println("Waiting for job data...")
-			job := <- c.newJobCh
+			job := <-c.newJobCh
 			go func(job *structs.Job) {
 				fmt.Println("Received job data...")
 				interrupted, err := c.execJob(job)
@@ -313,7 +324,7 @@ func Run(args []string, devMode bool) int {
 	}
 
 	driverMap := initDrivers(config)
-	
+
 	client := &Client{
 		config:		config,
 		jobsRunningMtx: &sync.Mutex{},
@@ -333,6 +344,7 @@ func Run(args []string, devMode bool) int {
 		os.Exit(1)
 	}()
 
+	go startPollGPUData(config.NvidiaCfg, client.updateGpuInfo)
 	client.startJobRunner()
 
 	for {

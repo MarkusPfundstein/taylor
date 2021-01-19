@@ -5,11 +5,12 @@ import (
 	"net"
 	"os"
 	"errors"
+	"time"
 
-	"taylor/server/database"	
-	"taylor/server/handlers"	
-	"taylor/lib/tcp"	
-	"taylor/lib/structs"	
+	"taylor/server/database"
+	"taylor/server/handlers"
+	"taylor/lib/tcp"
+	"taylor/lib/structs"
 )
 
 type TcpDependencies struct {
@@ -23,6 +24,7 @@ type Node struct {
 	Capabilities	[]string
 	Capacity	uint
 	JobsRunning	uint
+	GpuInfo		[]structs.GpuInfo
 }
 
 func NodeFromMessage(c *tcp.Conn, msg tcp.MsgHandshakeInitial) *Node {
@@ -31,6 +33,7 @@ func NodeFromMessage(c *tcp.Conn, msg tcp.MsgHandshakeInitial) *Node {
 		Capacity: msg.Capacity,		// for now
 		Capabilities: msg.Capabilities,
 		JobsRunning: msg.JobsRunning,
+		GpuInfo: msg.GpuInfo,
 		conn: c,
 	}
 	if n.Capabilities == nil {
@@ -41,7 +44,7 @@ func NodeFromMessage(c *tcp.Conn, msg tcp.MsgHandshakeInitial) *Node {
 
 type NodeMsgPair struct {
 	node	*Node
-	payload interface{}	
+	payload interface{}
 }
 
 type TcpServer struct {
@@ -75,7 +78,7 @@ func (s *TcpServer) deregisterNode(n *Node) {
 				s.deregisterScheduledJob(job, structs.JOB_STATUS_ERROR, "Node died")
 			}
 		}
-		
+
 		delete(s.nodes, n.Name)
 		n.conn.Close()
 	}
@@ -232,6 +235,7 @@ func (s *TcpServer) updateNodeFromMessage(msgBase tcp.MsgBase, agentInfo tcp.Msg
 
 	node.JobsRunning = agentInfo.JobsRunning
 	node.Capacity = agentInfo.Capacity
+	node.GpuInfo = agentInfo.GpuInfo
 	return nil
 }
 
@@ -260,7 +264,7 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 	}
 	// will close connection 
 	defer s.deregisterNode(node)
-		
+
 	// everything ok
 	s.handshakeEnd(node, "")
 
@@ -274,6 +278,13 @@ func (s *TcpServer) handleConn(c *tcp.Conn) {
 		}
 
 		switch (cmd) {
+		case tcp.MSG_AGENT_INFO_RESPONSE:
+			response, _ := message.(tcp.MsgAgentInfoResponse)
+			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				continue
+			}
 		case tcp.MSG_JOB_ACCEPTED:
 			response, _ := message.(tcp.MsgJobAccepted)
 			err := s.updateNodeFromMessage(response.MsgBase, response.MsgAgentInfo)
@@ -402,6 +413,20 @@ func (s *TcpServer) Unicast(node *Node, payload interface{}) {
 	s.cliChan <- NodeMsgPair{node, payload}
 }
 
+func (s *TcpServer) agentInfoLoop() {
+	for {
+		for _, v := range s.nodes {
+			s.Unicast(v, &tcp.MsgAgentInfoRequest{
+				MsgBase: tcp.MsgBase{
+					Command: tcp.MSG_AGENT_INFO_REQUEST,
+					NodeName: s.config.Name,
+				},
+			})
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 	ln, err := net.Listen("tcp", config.Addresses.Tcp)
 	if err != nil {
@@ -416,6 +441,7 @@ func StartTcp(config Config, deps TcpDependencies) (*TcpServer, error) {
 		diskLog:	   deps.DiskLog,
 	}
 
+	go s.agentInfoLoop()
 	go s.listen(ln)
 	return s, nil
 }

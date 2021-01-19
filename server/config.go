@@ -13,6 +13,7 @@ type AddressConfig struct {
 	Tcp	string `json:"tcp"`
 }
 
+
 type Config struct {
 	Addresses AddressConfig `json:"addresses"`
 	DataDir	  string	`json:"data_dir"`

@@ -31,14 +31,12 @@ func removeNode(slice []*Node, s int) []*Node{
 
 func nodesWithCapabilities(restrict []string, nodes []*Node) []*Node{
 	res := []*Node{}
-	
 	for _, node := range nodes {
 		ok := util.IsSubsetString(restrict, node.Capabilities)
 		if ok == true {
 			res = append(res, node)
 		}
 	}
-	
 	return res
 }
 
@@ -69,20 +67,20 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 	}
 
 	nodeProxyJobMaps := make([]NodeJobMap, 0)
-	
+
 	for _, job := range jobs {
 		// find all nodes that have some space left
 		freeNodes := freeNodes(proxyNodes)
 
 		//fmt.Printf("freeNodes: %+v", freeNodes)
-		
+
 		// filter out all nodes that are not capable of handling the job
 		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
-		
+
 		//fmt.Printf("capableNodes: %+v", capableNodes)
 		// sort by capability. the ones with the least comes first
 		sortCapableNodes(capableNodes)
-	
+
 		for idx, node := range capableNodes{
 			// this check shouldn't be necessary as we filtered out above all full nodes already. but we just leave it for now until we have unit tests :-)
 			if (node.Capacity - node.JobsRunning) > 0 {
@@ -96,12 +94,12 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 					removeNode(capableNodes, idx)
 				}
 				break
-			} else {			
+			} else {
 				removeNode(capableNodes, idx)
 			}
 		}
 	}
-	
+
 	return nodeProxyJobMaps
 }
 
@@ -115,7 +113,7 @@ func sortJobsByPriority(jobs []*structs.Job) {
 func (s *Scheduler) schedule () {
 	for {
 		time.Sleep(s.sleepMs * time.Millisecond)
-		
+
 		jobs, err := s.store.JobsWithStatus(structs.JOB_STATUS_WAITING, 0)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error %v\n", err)

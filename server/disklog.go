@@ -69,7 +69,7 @@ func (d *DiskLog) GetLogs(job *structs.Job) ([]string, error) {
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	    
+
 	if err := scanner.Err(); err != nil {
 		return lines, err
 	}
