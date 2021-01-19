@@ -208,7 +208,7 @@ func patchJob(deps ApiDependencies, c *gin.Context) {
 	case "update":
 		code, err := updateJob(deps.TcpServer, job, patchDef.Path, patchDef.Value)
 		if err != nil {
-			fmt.Println("err: %v\n", err)
+			fmt.Printf("err: %v\n", err)
 			sendError(c, code, err)
 			return
 		}

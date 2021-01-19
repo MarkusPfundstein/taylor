@@ -22,7 +22,7 @@ type Scheduler struct {
 
 type NodeJobMap struct {
 	node *Node
-	job  *structs.Job 
+	job  *structs.Job
 }
 
 func removeNode(slice []*Node, s int) []*Node{
