@@ -57,13 +57,90 @@ func freeNodes(nodes []*Node) []*Node {
 	return freeNodes
 }
 
+func nodesWhichFulfillGpuRequirements(nodes []*Node, gpuReqs []structs.GpuRequirement) []*Node {
+	outNodes := make([]*Node, 0)
+
+	proxyNodes := make([]*Node, 0)
+
+	// deep copy of each node. we dont want to modify original data
+	for _, node := range nodes { 
+		// filter out all nodes that have less gpus than requested
+		if len(node.GpuInfo) >= len(gpuReqs) {
+			proxyNodes = append(proxyNodes, node)
+		}
+	}
+
+	if len(proxyNodes) == 0 {
+		return outNodes
+	}
+
+	for _, n := range proxyNodes{
+		// for each gpu requirement, go through nodes info and see if we find match
+		foundN := 0
+		usedInfos := make(map[int]int, len(n.GpuInfo))
+		for _, gpuReq := range gpuReqs {
+			foundMatch := false
+			for k, gpuInfo := range n.GpuInfo {
+				if usedInfos[k] == 1 {
+					continue
+				}
+				if gpuReq.Type != "" && gpuInfo.NameGPU != gpuReq.Type {
+					continue
+				}
+				if gpuReq.MemoryAvailable > -1 && gpuInfo.MemoryFreeMB < gpuReq.MemoryAvailable {
+					continue
+				}
+				foundMatch = true
+				// add memory so that we dont reuse it next iteration
+				n.GpuInfo[k].MemoryFreeMB -= gpuReq.MemoryAvailable
+				usedInfos[k] = 1
+				break
+			}
+			// we havent found a match for our gpu
+			if foundMatch {
+				foundN++
+			}
+			if foundN == len(gpuReqs) {
+				break
+			}
+		}
+		if foundN == len(gpuReqs) {
+			outNodes = append(outNodes, n)
+		}
+	}
+
+	return outNodes
+}
+
+func printNodes(nodes []*Node) {
+	for _, n := range nodes {
+		fmt.Printf("%+v\n", *n)
+	}
+}
+
 func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 
 	proxyNodes := make([]*Node, len(nodesIn ))
 
+	// deep copy of each node. we dont want to modify original data
 	for idx, node := range nodesIn {
-		copy := *node
-		proxyNodes[idx] = &copy
+		copy := &Node{
+			Name:	      node.Name,
+			Capabilities: node.Capabilities,
+			Capacity:     node.Capacity,
+			JobsRunning:  node.JobsRunning,
+			GpuInfo:      make([]structs.GpuInfo, len(node.GpuInfo)),
+		}
+		for k, gpuInfo := range node.GpuInfo {
+			copy.GpuInfo[k] = structs.GpuInfo{
+				NameGPU:	gpuInfo.NameGPU,
+				Temperature:	gpuInfo.Temperature,
+				MemoryTotalMB:	gpuInfo.MemoryTotalMB,
+				MemoryFreeMB:	gpuInfo.MemoryFreeMB,
+				Utilization:	gpuInfo.Utilization,
+			}
+		}
+		proxyNodes[idx] = copy
 	}
 
 	nodeProxyJobMaps := make([]NodeJobMap, 0)
@@ -71,33 +148,34 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 	for _, job := range jobs {
 		// find all nodes that have some space left
 		freeNodes := freeNodes(proxyNodes)
-
-		//fmt.Printf("freeNodes: %+v", freeNodes)
+		if len(freeNodes) == 0 {
+			break
+		}
 
 		// filter out all nodes that are not capable of handling the job
 		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
+		if len(capableNodes) == 0 {
+			continue
+		}
 
-		//fmt.Printf("capableNodes: %+v", capableNodes)
 		// sort by capability. the ones with the least comes first
 		sortCapableNodes(capableNodes)
 
-		for idx, node := range capableNodes{
-			// this check shouldn't be necessary as we filtered out above all full nodes already. but we just leave it for now until we have unit tests :-)
-			if (node.Capacity - node.JobsRunning) > 0 {
-				nodeProxyJobMaps = append(nodeProxyJobMaps, NodeJobMap{
-					node: node,
-					job: job,
-				})
-				node.JobsRunning++
-				// remove preliminarily
-				if (node.Capacity - node.JobsRunning) > 0 {
-					removeNode(capableNodes, idx)
-				}
-				break
-			} else {
-				removeNode(capableNodes, idx)
+		if len(job.GpuRequirement) > 0 {
+			gpuNodes := nodesWhichFulfillGpuRequirements(capableNodes, job.GpuRequirement)
+			if len(gpuNodes) == 0 {
+				continue
 			}
+
+			capableNodes = gpuNodes
 		}
+
+		// we have now multiple capable nodes. take first one
+		nodeProxyJobMaps = append(nodeProxyJobMaps, NodeJobMap{
+			node: capableNodes[0],
+			job: job,
+		})
+		capableNodes[0].JobsRunning++
 	}
 
 	return nodeProxyJobMaps
@@ -124,17 +202,11 @@ func (s *Scheduler) schedule () {
 			continue
 		}
 
-		//fmt.Printf("jobs before: %=v\n", jobs)
 		sortJobsByPriority(jobs)
-		//fmt.Printf("jobs after: %=v\n", jobs)
-
-		//fmt.Printf("distribute %d over %d nodes\n", len(jobs), len(s.tcpServer.Nodes()))
 
 		distributed := distribute(s.tcpServer.Nodes(), jobs)
 
-		//fmt.Printf("distributed: %v\n", distributed)
-
-		// try to schedule all jobs on corresponding nodes
+		// schedule all jobs on corresponding nodes
 		var wg sync.WaitGroup
 		for _, v := range distributed {
 			fmt.Printf("Schedule job %s [%v] to node %s [%v]\n", v.job.Identifier, v.job.Restrict, v.node.Name, v.node.Capabilities)

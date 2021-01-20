@@ -23,12 +23,14 @@ type PatchDefinition struct {
 }
 
 type JobDefinition struct {
-	Identifier	string			`json:"identifier"`
-	Driver		string			`json:"driver"`
-	DriverConfig	map[string]interface{}	`json:"driver_config"`
-	UpdateHandlers	[]structs.UpdateHandler	`json:"update_handlers"`
-	Restrict	[]string		`json:"restrict"`
-	Priority	int			`json:"priority"`
+	Identifier	string			  `json:"identifier"`
+	Driver		string			  `json:"driver"`
+	DriverConfig	map[string]interface{}	  `json:"driver_config"`
+	UpdateHandlers	[]structs.UpdateHandler	  `json:"update_handlers"`
+	Restrict	[]string		  `json:"restrict"`
+	Priority	int			  `json:"priority"`
+	GpuReq		[]structs.GpuRequirement  `json:"gpu_requirement"`
+	UserData	map[string]interface{}    `json:"user_data"`
 }
 
 type ApiDependencies struct {
@@ -68,6 +70,15 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 	if jobDef.Priority == 0 {
 		jobDef.Priority = 10
 	}
+	if jobDef.GpuReq != nil {
+		for idx, req := range jobDef.GpuReq {
+			if req.MemoryAvailable == 0 {
+				jobDef.GpuReq[idx].MemoryAvailable = -1
+			}
+		}
+	} else {
+		jobDef.GpuReq = make([]structs.GpuRequirement, 0)
+	}
 
 	job := structs.NewJob(
 		jobDef.Identifier,
@@ -76,9 +87,11 @@ func postJob(deps ApiDependencies, c *gin.Context) {
 		jobDef.UpdateHandlers,
 		jobDef.Restrict,
 		uint(jobDef.Priority),
+		jobDef.GpuReq,
+		jobDef.UserData,
 	)
 
-	fmt.Printf("%+v", job)
+	fmt.Printf("%+v\n", job)
 
 	_, err := deps.Store.InsertJob(job)
 	if err != nil {

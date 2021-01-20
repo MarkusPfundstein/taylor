@@ -35,6 +35,8 @@ func (s *Store) init() error {
 		,restrict STRING
 		,priority INT
 		,progress FLOAT
+		,user_data STRING
+		,gpu_requirement STRING
 	);
 	`)
 	if err != nil {
@@ -102,6 +104,8 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 	driverConfig, _ := encodeData(job.DriverConfig)
 	updateHandlers, _ := encodeData(job.UpdateHandlers)
 	restrict, _ := encodeData(job.Restrict)
+	userData, _ := encodeData(job.UserData)
+	gpuRequirement, _ := encodeData(job.GpuRequirement)
 
 	query := fmt.Sprintf(`
 	INSERT INTO jobs (
@@ -115,8 +119,10 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 		update_handlers,
 		restrict,
 		priority,
-		progress
-	) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s", "%s", %d, %f)
+		progress,
+		user_data,
+		gpu_requirement,
+	) VALUES ("%s", "%s", %d, %d, "%s", "%s", "%s", "%s", "%s", %d, %f, "%s", "%s")
 	`,
 		job.Id,
 		job.Identifier,
@@ -129,7 +135,11 @@ func (s *Store) InsertJob(job *structs.Job) (int, error) {
 		string(restrict),
 		job.Priority,
 		job.Progress,
+		string(userData),
+		string(gpuRequirement),
 	)
+
+	//fmt.Println(query)
 
 	_, err = tx.Exec(query)
 	if err != nil {
@@ -152,10 +162,12 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 
 	for rows.Next() {
 		var job structs.Job
-		
+
 		var encodedDriverConfig string
 		var encodedUpdateHandlers string
 		var encodedRestrict string
+		var encodedUserData string
+		var encodedGpuReq string
 
 		err := rows.Scan(
 			&job.Id,
@@ -169,6 +181,8 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 			&encodedRestrict,
 			&job.Priority,
 			&job.Progress,
+			&encodedUserData,
+			&encodedGpuReq,
 		)
 		if err != nil {
 			return err
@@ -180,10 +194,29 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 		decodedUpdateHandlers, _ := decodeData(encodedUpdateHandlers)
 		updateHandlersTmp, _ := decodedUpdateHandlers.([]interface{})
 
+		decodedUserData, _ := decodeData(encodedUserData)
+		userData, _ := decodedUserData.(map[string]interface{})
+
+		decodedGpuReq, _ := decodeData(encodedGpuReq)
+
+		gpuReqs := make([]structs.GpuRequirement, 0)
+		for _, decDataTmp := range decodedGpuReq.([]interface{}) {
+			decData := decDataTmp.(map[string]interface{})
+
+			mem, _ := decData["memory_available"].(float64)
+			typ := decData["type"].(string)
+
+			gpuReq := structs.GpuRequirement{
+				MemoryAvailable: int(mem),
+				Type: typ,
+			}
+			gpuReqs = append(gpuReqs, gpuReq)
+		}
+
 		// I know. I am not proud of this but I am too lazy now and want to make progress. 
 		updateHandlers := make([]structs.UpdateHandler, len(updateHandlersTmp))
 		for i, handlerTmp := range updateHandlersTmp {
-			handler, _ := handlerTmp.(map[string]interface{})	
+			handler, _ := handlerTmp.(map[string]interface{})
 			handlerType, _ := handler["type"].(string)
 			handlerOnTmps, _ := handler["on"].([]interface{})
 			handlerOn := make([]string, len(handlerOnTmps))
@@ -217,6 +250,8 @@ func (s *Store) IterQuery(query string, fun func (job *structs.Job)) error {
 		job.DriverConfig = driverConfig
 		job.UpdateHandlers = updateHandlers
 		job.Restrict = restrict
+		job.UserData = userData
+		job.GpuRequirement = gpuReqs
 
 		fun(&job)
 	}
@@ -242,7 +277,7 @@ func (s *Store) JobById(id string) (*structs.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if len(jobs) == 0 {
 		return nil, nil
 	}

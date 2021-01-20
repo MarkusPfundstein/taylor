@@ -36,6 +36,11 @@ type UpdateHandler struct {
 	Config		map[string]interface{}	`json:"config"`
 }
 
+type GpuRequirement struct {
+	Type		string			`json:"type"`
+	MemoryAvailable int			`json:"memory_available"`
+}
+
 type Job struct {
 	Id		string			`json:"id"`
 	Identifier	string			`json:"identifier"`
@@ -46,8 +51,10 @@ type Job struct {
 	DriverConfig	map[string]interface{}	`json:"driver_config"`
 	UpdateHandlers	[]UpdateHandler		`json:"update_handlers"`
 	Restrict	[]string		`json:"restrict"`
+	GpuRequirement  []GpuRequirement	`json:"gpu_requirement"`
 	Priority	uint			`json:"priority"`
 	Progress	float32			`json:"progress"`
+	UserData	map[string]interface{}  `json:"user_data"`
 }
 
 func (job *Job) CanCancel() bool {
@@ -65,6 +72,8 @@ func NewJob(
 	updateHandlers []UpdateHandler,
 	restrict []string,
 	priority uint,
+	gpuReq []GpuRequirement,
+	ud	map[string]interface{},
 ) *Job {
 	// to-do: validate updatehandlers
 	return &Job{
@@ -77,7 +86,9 @@ func NewJob(
 		DriverConfig:	driverConfig,
 		UpdateHandlers: updateHandlers,
 		Restrict:	restrict,
+		GpuRequirement: gpuReq,
 		Progress:	0.0,
 		Priority:	priority,
+		UserData:	ud,
 	}
 }
