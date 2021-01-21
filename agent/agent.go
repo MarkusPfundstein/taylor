@@ -344,7 +344,9 @@ func Run(args []string, devMode bool) int {
 		os.Exit(1)
 	}()
 
-	go startPollGPUData(config.NvidiaCfg, client.updateGpuInfo)
+	if config.NvidiaCfg.NvidiaSmiPath != "" {
+		startPollGPUDataLoop(config.NvidiaCfg, client.updateGpuInfo)
+	}
 	client.startJobRunner()
 
 	for {

@@ -62,7 +62,6 @@ func nodesWhichFulfillGpuRequirements(nodes []*Node, gpuReqs []structs.GpuRequir
 
 	proxyNodes := make([]*Node, 0)
 
-	// deep copy of each node. we dont want to modify original data
 	for _, node := range nodes { 
 		// filter out all nodes that have less gpus than requested
 		if len(node.GpuInfo) >= len(gpuReqs) {
@@ -74,8 +73,15 @@ func nodesWhichFulfillGpuRequirements(nodes []*Node, gpuReqs []structs.GpuRequir
 		return outNodes
 	}
 
+	// sort so that nodes with least gpus are first. we dont want to waste them
+	sort.Slice(proxyNodes[:], func (i int, j int) bool {
+		return len(proxyNodes[i].GpuInfo) < len(proxyNodes[j].GpuInfo)
+	})
+
 	for _, n := range proxyNodes{
 		// for each gpu requirement, go through nodes info and see if we find match
+		// if we find one, we store it in LUT usedInfos.
+		// if we found enough, we are done
 		foundN := 0
 		usedInfos := make(map[int]int, len(n.GpuInfo))
 		for _, gpuReq := range gpuReqs {
@@ -91,7 +97,7 @@ func nodesWhichFulfillGpuRequirements(nodes []*Node, gpuReqs []structs.GpuRequir
 					continue
 				}
 				foundMatch = true
-				// add memory so that we dont reuse it next iteration
+				// substract req. memory from available memory so that we can account for it in the next iteration
 				n.GpuInfo[k].MemoryFreeMB -= gpuReq.MemoryAvailable
 				usedInfos[k] = 1
 				break
@@ -104,6 +110,7 @@ func nodesWhichFulfillGpuRequirements(nodes []*Node, gpuReqs []structs.GpuRequir
 				break
 			}
 		}
+		// we found enough and we can append the node to the array
 		if foundN == len(gpuReqs) {
 			outNodes = append(outNodes, n)
 		}
@@ -152,7 +159,7 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 			break
 		}
 
-		// filter out all nodes that are not capable of handling the job
+		// filter out all nodes that don't have required capability tags
 		capableNodes := nodesWithCapabilities(job.Restrict, freeNodes )
 		if len(capableNodes) == 0 {
 			continue
@@ -162,6 +169,7 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 		sortCapableNodes(capableNodes)
 
 		if len(job.GpuRequirement) > 0 {
+			// filter out all nodes that don't fulfill the gpu requirements
 			gpuNodes := nodesWhichFulfillGpuRequirements(capableNodes, job.GpuRequirement)
 			if len(gpuNodes) == 0 {
 				continue
@@ -171,6 +179,7 @@ func distribute(nodesIn []*Node, jobs []*structs.Job) []NodeJobMap{
 		}
 
 		// we have now multiple capable nodes. take first one
+		// To-DO: interesting step would be to somehow calculate now the best one to take in order to optimize for some metric (e.g. maximize utilization)
 		nodeProxyJobMaps = append(nodeProxyJobMaps, NodeJobMap{
 			node: capableNodes[0],
 			job: job,
@@ -209,8 +218,7 @@ func (s *Scheduler) schedule () {
 		// schedule all jobs on corresponding nodes
 		var wg sync.WaitGroup
 		for _, v := range distributed {
-			fmt.Printf("Schedule job %s [%v] to node %s [%v]\n", v.job.Identifier, v.job.Restrict, v.node.Name, v.node.Capabilities)
-
+			fmt.Printf("Schedule job %+v to node %+v\n", v.job, v.node) 
 			wg.Add(1)
 			go func (njm NodeJobMap) {
 				defer wg.Done()

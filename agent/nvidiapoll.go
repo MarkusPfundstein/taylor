@@ -65,62 +65,68 @@ func parseNvidiaOut(text string) (structs.GpuInfo, error) {
 	return data, nil
 }
 
-func startPollGPUData(cfg NvidiaConfig, onGpuInfo OnGpuInfoFn) {
-	fmt.Println("Start Poll GPU Data")
-	for {
-		time.Sleep(cfg.PollTimeMs * time.Millisecond)
-
-		args := []string{
-			 "--query-gpu=name,temperature.gpu,memory.total,memory.free,utilization.gpu",
-			 "--format=csv,nounits,noheader",
-		 }
-
-		cmd := exec.Command(cfg.NvidiaSmiPath, args...)
-		cmd.Env = append(cmd.Env, os.Environ()...)
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-		stderr, err := cmd.StderrPipe()
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		if err := cmd.Start(); err != nil {
-			fmt.Println(err)
-			continue
-		}
-		// read stderr in background and stdout in this thread
-		waitStderr := make(chan int, 0)
-		go func () {
-			readPipe(stderr, func (text string) {
-				fmt.Println("STDERR >> ", text)
-			})
-			waitStderr<- 1
-		}()
-
-		gpuData := make([]structs.GpuInfo, 0)
-		readPipe(stdout, func (text string) {
-			pollData, err := parseNvidiaOut(text)
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			gpuData = append(gpuData, pollData)
-		})
-
-		// wait for stderr
-		<-waitStderr
-
-		// wait for process
-		err = cmd.Wait()
-		if err != nil {
-			fmt.Println(err)
-			continue
-		}
-
-		onGpuInfo(gpuData)
+func pollGpuData(cfg NvidiaConfig, onGpuInfo OnGpuInfoFn) {
+	args := []string{
+		"--query-gpu=name,temperature.gpu,memory.total,memory.free,utilization.gpu",
+		"--format=csv,nounits,noheader",
 	}
+
+	cmd := exec.Command(cfg.NvidiaSmiPath, args...)
+	cmd.Env = append(cmd.Env, os.Environ()...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		fmt.Println(err)
+		return
+	}
+	// read stderr in background and stdout in this thread
+	waitStderr := make(chan int, 0)
+	go func () {
+		readPipe(stderr, func (text string) {
+			fmt.Println("STDERR >> ", text)
+		})
+		waitStderr<- 1
+	}()
+
+	gpuData := make([]structs.GpuInfo, 0)
+	readPipe(stdout, func (text string) {
+		pollData, err := parseNvidiaOut(text)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		gpuData = append(gpuData, pollData)
+	})
+
+	// wait for stderr
+	<-waitStderr
+
+	// wait for process
+	err = cmd.Wait()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	onGpuInfo(gpuData)
+}
+
+func startPollGPUDataLoop(cfg NvidiaConfig, onGpuInfo OnGpuInfoFn) {
+	fmt.Println("Start Poll GPU Data")
+	pollGpuData(cfg, onGpuInfo)
+	go func() {
+		for {
+			time.Sleep(cfg.PollTimeMs * time.Millisecond)
+			pollGpuData(cfg, onGpuInfo)
+		}
+	}()
 }
