@@ -7,6 +7,10 @@ distributed worker queue written in golang
 - gin
 - ql
 
+## Get started
+
+# Run taylor
+
 ## To-Do
 
 - when exec jobs fails due to executable not in PATH, its should be logged to job log
